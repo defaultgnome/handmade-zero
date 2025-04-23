@@ -7,13 +7,14 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
     });
 
     const exe = b.addExecutable(.{
         .name = "handmade_zero",
         .root_module = exe_mod,
     });
+    exe.linkLibC();
+    exe.linkSystemLibrary("gdi32");
 
     b.installArtifact(exe);
 
