@@ -12,7 +12,6 @@ pub export fn main(
     _ = cmd_show;
 
     const window_class = win.WNDCLASSA{
-        .style = win.CS_OWNDC | win.CS_HREDRAW | win.CS_VREDRAW,
         .lpfnWndProc = mainWindowCallback,
         .hInstance = @constCast(@ptrCast(&inst)),
         // .hIcon = ;
