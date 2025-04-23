@@ -2,6 +2,9 @@ const std = @import("std");
 const win = @cImport(@cInclude("windows.h"));
 
 var running = true;
+var bits: ?*anyopaque = null;
+var bitmap_handle: win.HBITMAP = undefined;
+var bitmap_device_context: win.HDC = undefined;
 
 pub export fn main(
     inst: std.os.windows.HINSTANCE,
@@ -55,7 +58,6 @@ pub export fn main(
     return 0;
 }
 
-var paint_mode = win.WHITENESS;
 fn mainWindowCallback(
     window: win.HWND,
     message: win.UINT,
@@ -67,6 +69,11 @@ fn mainWindowCallback(
     switch (message) {
         win.WM_SIZE => {
             std.log.info("WM_SIZE", .{});
+            var rect: win.RECT = undefined;
+            _ = win.GetClientRect(window, &rect);
+            const width: i32 = @intCast(rect.right - rect.left);
+            const height: i32 = @intCast(rect.bottom - rect.top);
+            resizeDIBSection(width, height);
         },
         win.WM_DESTROY => {
             std.log.info("WM_DESTROY", .{});
@@ -86,9 +93,9 @@ fn mainWindowCallback(
             const y = ps.rcPaint.top;
             const width = ps.rcPaint.right - ps.rcPaint.left;
             const height = ps.rcPaint.bottom - ps.rcPaint.top;
-            _ = win.PatBlt(device_context, x, y, width, height, paint_mode);
-            // just for fun, alternate between white and black
-            paint_mode = if (paint_mode == win.WHITENESS) win.BLACKNESS else win.WHITENESS;
+            updateWindow(device_context, x, y, width, height);
+
+            _ = win.PatBlt(device_context, x, y, width, height, win.WHITENESS);
             _ = win.EndPaint(window, &ps);
         },
         else => {
@@ -97,4 +104,52 @@ fn mainWindowCallback(
         },
     }
     return result;
+}
+
+var bitmap_info = win.BITMAPINFO{
+    .bmiHeader = win.BITMAPINFOHEADER{
+        .biSize = @sizeOf(win.BITMAPINFOHEADER),
+        .biWidth = undefined,
+        .biHeight = undefined,
+        .biPlanes = 1,
+        .biBitCount = 32,
+        .biCompression = win.BI_RGB,
+    },
+};
+
+fn resizeDIBSection(width: i32, height: i32) void {
+    if (bitmap_handle != null) {
+        _ = win.DeleteObject(bitmap_handle);
+    }
+    if (bitmap_device_context == null) {
+        bitmap_device_context = win.CreateCompatibleDC(null);
+    }
+    bitmap_info.bmiHeader.biWidth = width;
+    bitmap_info.bmiHeader.biHeight = height;
+    bitmap_handle = win.CreateDIBSection(
+        bitmap_device_context,
+        &bitmap_info,
+        win.DIB_RGB_COLORS,
+        &bits,
+        null,
+        0,
+    );
+}
+
+fn updateWindow(device_context: win.HDC, x: i32, y: i32, width: i32, height: i32) void {
+    _ = win.StretchDIBits(
+        device_context,
+        x,
+        y,
+        width,
+        height,
+        x,
+        y,
+        width,
+        height,
+        bits,
+        &bitmap_info,
+        win.DIB_RGB_COLORS,
+        win.SRCCOPY,
+    );
 }
