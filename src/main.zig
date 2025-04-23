@@ -1,6 +1,8 @@
 const std = @import("std");
 const win = @cImport(@cInclude("windows.h"));
 
+var running = true;
+
 pub export fn main(
     inst: std.os.windows.HINSTANCE,
     prev: ?std.os.windows.HINSTANCE,
@@ -41,13 +43,15 @@ pub export fn main(
         // TODO: Handle error the zig way?
         return 1;
     };
-
-    var msg: win.MSG = undefined;
-    while (win.GetMessageA(&msg, window, 0, 0) > 0) {
-        _ = win.TranslateMessage(&msg);
-        _ = win.DispatchMessageA(&msg);
+    while (running) {
+        var msg: win.MSG = undefined;
+        if (win.GetMessageA(&msg, window, 0, 0) > 0) {
+            _ = win.TranslateMessage(&msg);
+            _ = win.DispatchMessageA(&msg);
+        } else {
+            running = false;
+        }
     }
-
     return 0;
 }
 
@@ -66,9 +70,11 @@ fn mainWindowCallback(
         },
         win.WM_DESTROY => {
             std.log.info("WM_DESTROY", .{});
+            running = false;
         },
         win.WM_CLOSE => {
             std.log.info("WM_CLOSE", .{});
+            running = false;
         },
         win.WM_ACTIVATEAPP => {
             std.log.info("WM_ACTIVATEAPP", .{});
