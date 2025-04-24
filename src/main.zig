@@ -2,9 +2,20 @@ const std = @import("std");
 const win = @cImport(@cInclude("windows.h"));
 
 var running = true;
+
+var bitmap_info = win.BITMAPINFO{
+    .bmiHeader = win.BITMAPINFOHEADER{
+        .biSize = @sizeOf(win.BITMAPINFOHEADER),
+        .biWidth = undefined,
+        .biHeight = undefined,
+        .biPlanes = 1,
+        .biBitCount = 32,
+        .biCompression = win.BI_RGB,
+    },
+};
 var bits: ?*anyopaque = null;
-var bitmap_handle: win.HBITMAP = undefined;
-var bitmap_device_context: win.HDC = undefined;
+var bitmap_width: i32 = 0;
+var bitmap_height: i32 = 0;
 
 pub export fn main(
     inst: std.os.windows.HINSTANCE,
@@ -93,9 +104,10 @@ fn mainWindowCallback(
             const y = ps.rcPaint.top;
             const width = ps.rcPaint.right - ps.rcPaint.left;
             const height = ps.rcPaint.bottom - ps.rcPaint.top;
-            updateWindow(device_context, x, y, width, height);
 
-            _ = win.PatBlt(device_context, x, y, width, height, win.WHITENESS);
+            var rect: win.RECT = undefined;
+            _ = win.GetClientRect(window, &rect);
+            updateWindow(device_context, &rect, x, y, width, height);
             _ = win.EndPaint(window, &ps);
         },
         else => {
@@ -106,50 +118,70 @@ fn mainWindowCallback(
     return result;
 }
 
-var bitmap_info = win.BITMAPINFO{
-    .bmiHeader = win.BITMAPINFOHEADER{
-        .biSize = @sizeOf(win.BITMAPINFOHEADER),
-        .biWidth = undefined,
-        .biHeight = undefined,
-        .biPlanes = 1,
-        .biBitCount = 32,
-        .biCompression = win.BI_RGB,
-    },
-};
-
 fn resizeDIBSection(width: i32, height: i32) void {
-    if (bitmap_handle != null) {
-        _ = win.DeleteObject(bitmap_handle);
+    if (bits != null) {
+        _ = win.VirtualFree(bits, 0, win.MEM_RELEASE);
     }
-    if (bitmap_device_context == null) {
-        bitmap_device_context = win.CreateCompatibleDC(null);
-    }
-    bitmap_info.bmiHeader.biWidth = width;
-    bitmap_info.bmiHeader.biHeight = height;
-    bitmap_handle = win.CreateDIBSection(
-        bitmap_device_context,
-        &bitmap_info,
-        win.DIB_RGB_COLORS,
-        &bits,
+
+    bitmap_width = width;
+    bitmap_height = height;
+
+    bitmap_info.bmiHeader.biWidth = bitmap_width;
+    bitmap_info.bmiHeader.biHeight = -bitmap_height;
+
+    const bytes_per_pixel = 4;
+    const bitsmap_size: c_ulonglong = @intCast(bitmap_width * bitmap_height * bytes_per_pixel);
+    bits = win.VirtualAlloc(
         null,
-        0,
+        bitsmap_size,
+        win.MEM_COMMIT,
+        win.PAGE_READWRITE,
     );
+
+    const h = @as(usize, @intCast(bitmap_height));
+    const w = @as(usize, @intCast(bitmap_width));
+    const pitch: usize = @intCast(bitmap_width * bytes_per_pixel);
+    var row: [*]u8 = @ptrCast(bits);
+    for (0..h) |y| {
+        var pixel = row;
+        for (0..w) |x| {
+            // BB GG RR xx
+            pixel[0] = @truncate(x);
+            pixel[1] = @truncate(y);
+            pixel[2] = 0;
+            pixel[3] = 0;
+            pixel += bytes_per_pixel;
+        }
+        row += pitch;
+    }
 }
 
-fn updateWindow(device_context: win.HDC, x: i32, y: i32, width: i32, height: i32) void {
+fn updateWindow(
+    device_context: win.HDC,
+    rect: *win.RECT,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) void {
+    _ = x;
+    _ = y;
+    _ = width;
+    _ = height;
+
+    const window_width = rect.right - rect.left;
+    const window_height = rect.bottom - rect.top;
+
+    // zig fmt: off
     _ = win.StretchDIBits(
         device_context,
-        x,
-        y,
-        width,
-        height,
-        x,
-        y,
-        width,
-        height,
+        // x, y, width, height,
+        // x, y, width, height,
+        0, 0, bitmap_width, bitmap_height,
+        0, 0, window_width, window_height,
         bits,
         &bitmap_info,
-        win.DIB_RGB_COLORS,
-        win.SRCCOPY,
+        win.DIB_RGB_COLORS, win.SRCCOPY,
     );
+    // zig fmt: on
 }
