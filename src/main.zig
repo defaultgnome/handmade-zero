@@ -159,14 +159,12 @@ fn renderWeirdGradient(x_offset: u32, y_offset: u32) void {
     const pitch: usize = @intCast(bitmap_width * bytes_per_pixel);
     var row: [*]u8 = @ptrCast(bits);
     for (0..h) |y| {
-        var pixel = row;
+        var pixel: [*]u32 = @ptrCast(@alignCast(row));
         for (0..w) |x| {
-            // BB GG RR xx
-            pixel[0] = @truncate(@as(u32, @intCast(x)) + x_offset);
-            pixel[1] = @truncate(@as(u32, @intCast(y)) + y_offset);
-            pixel[2] = 0;
-            pixel[3] = 0;
-            pixel += bytes_per_pixel;
+            const blue: u8 = @truncate(@as(u32, @intCast(x)) + x_offset);
+            const green: u16 = @truncate(@as(u32, @intCast(y)) + y_offset);
+            pixel[0] = (green << 8) | blue;
+            pixel += 1;
         }
         row += pitch;
     }
