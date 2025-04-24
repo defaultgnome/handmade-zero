@@ -16,6 +16,7 @@ var bitmap_info = win.BITMAPINFO{
 var bits: ?*anyopaque = null;
 var bitmap_width: i32 = 0;
 var bitmap_height: i32 = 0;
+const bytes_per_pixel = 4;
 
 pub export fn main(
     inst: std.os.windows.HINSTANCE,
@@ -57,14 +58,28 @@ pub export fn main(
         // TODO: Handle error the zig way?
         return 1;
     };
+    var x_offset: u32 = 0;
+    const y_offset: u32 = 0;
     while (running) {
         var msg: win.MSG = undefined;
-        if (win.GetMessageA(&msg, window, 0, 0) > 0) {
+        while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
+            if (msg.message == win.WM_QUIT) {
+                running = false;
+            }
             _ = win.TranslateMessage(&msg);
             _ = win.DispatchMessageA(&msg);
-        } else {
-            running = false;
         }
+        renderWeirdGradient(x_offset, y_offset);
+        {
+            const device_context = win.GetDC(window);
+            defer _ = win.ReleaseDC(window, device_context);
+            var client_rect: win.RECT = undefined;
+            _ = win.GetClientRect(window, &client_rect);
+            const window_width = client_rect.right - client_rect.left;
+            const window_height = client_rect.bottom - client_rect.top;
+            updateWindow(device_context, &client_rect, 0, 0, window_width, window_height);
+        }
+        x_offset += 1;
     }
     return 0;
 }
@@ -80,10 +95,10 @@ fn mainWindowCallback(
     switch (message) {
         win.WM_SIZE => {
             std.log.info("WM_SIZE", .{});
-            var rect: win.RECT = undefined;
-            _ = win.GetClientRect(window, &rect);
-            const width: i32 = @intCast(rect.right - rect.left);
-            const height: i32 = @intCast(rect.bottom - rect.top);
+            var client_rect: win.RECT = undefined;
+            _ = win.GetClientRect(window, &client_rect);
+            const width: i32 = @intCast(client_rect.right - client_rect.left);
+            const height: i32 = @intCast(client_rect.bottom - client_rect.top);
             resizeDIBSection(width, height);
         },
         win.WM_DESTROY => {
@@ -105,9 +120,9 @@ fn mainWindowCallback(
             const width = ps.rcPaint.right - ps.rcPaint.left;
             const height = ps.rcPaint.bottom - ps.rcPaint.top;
 
-            var rect: win.RECT = undefined;
-            _ = win.GetClientRect(window, &rect);
-            updateWindow(device_context, &rect, x, y, width, height);
+            var client_rect: win.RECT = undefined;
+            _ = win.GetClientRect(window, &client_rect);
+            updateWindow(device_context, &client_rect, x, y, width, height);
             _ = win.EndPaint(window, &ps);
         },
         else => {
@@ -129,7 +144,6 @@ fn resizeDIBSection(width: i32, height: i32) void {
     bitmap_info.bmiHeader.biWidth = bitmap_width;
     bitmap_info.bmiHeader.biHeight = -bitmap_height;
 
-    const bytes_per_pixel = 4;
     const bitsmap_size: c_ulonglong = @intCast(bitmap_width * bitmap_height * bytes_per_pixel);
     bits = win.VirtualAlloc(
         null,
@@ -137,7 +151,9 @@ fn resizeDIBSection(width: i32, height: i32) void {
         win.MEM_COMMIT,
         win.PAGE_READWRITE,
     );
+}
 
+fn renderWeirdGradient(x_offset: u32, y_offset: u32) void {
     const h = @as(usize, @intCast(bitmap_height));
     const w = @as(usize, @intCast(bitmap_width));
     const pitch: usize = @intCast(bitmap_width * bytes_per_pixel);
@@ -146,8 +162,8 @@ fn resizeDIBSection(width: i32, height: i32) void {
         var pixel = row;
         for (0..w) |x| {
             // BB GG RR xx
-            pixel[0] = @truncate(x);
-            pixel[1] = @truncate(y);
+            pixel[0] = @truncate(@as(u32, @intCast(x)) + x_offset);
+            pixel[1] = @truncate(@as(u32, @intCast(y)) + y_offset);
             pixel[2] = 0;
             pixel[3] = 0;
             pixel += bytes_per_pixel;
