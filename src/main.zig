@@ -78,7 +78,7 @@ pub export fn main(
             _ = win.GetClientRect(window, &client_rect);
             const window_width = client_rect.right - client_rect.left;
             const window_height = client_rect.bottom - client_rect.top;
-            updateWindow(device_context, &client_rect, 0, 0, window_width, window_height);
+            updateWindow(device_context, client_rect, 0, 0, window_width, window_height);
         }
         x_offset += 1;
     }
@@ -123,7 +123,7 @@ fn mainWindowCallback(
 
             var client_rect: win.RECT = undefined;
             _ = win.GetClientRect(window, &client_rect);
-            updateWindow(device_context, &client_rect, x, y, width, height);
+            updateWindow(device_context, client_rect, x, y, width, height);
             _ = win.EndPaint(window, &ps);
         },
         else => {
@@ -173,7 +173,7 @@ fn renderWeirdGradient(x_offset: u32, y_offset: u32) void {
 
 fn updateWindow(
     device_context: win.HDC,
-    rect: *win.RECT,
+    rect: win.RECT,
     x: i32,
     y: i32,
     width: i32,
