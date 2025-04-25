@@ -10,7 +10,7 @@ const OffscreenBuffer = struct {
     bytes_per_pixel: i32,
 };
 
-var running = true;
+var global_running = true;
 var global_backbuffer: OffscreenBuffer = undefined;
 
 pub export fn main(
@@ -59,11 +59,11 @@ pub export fn main(
 
     var x_offset: u32 = 0;
     var y_offset: u32 = 0;
-    while (running) {
+    while (global_running) {
         var msg: win.MSG = undefined;
         while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
             if (msg.message == win.WM_QUIT) {
-                running = false;
+                global_running = false;
             }
             _ = win.TranslateMessage(&msg);
             _ = win.DispatchMessageA(&msg);
@@ -101,10 +101,10 @@ fn mainWindowCallback(
     switch (message) {
         win.WM_SIZE => {},
         win.WM_DESTROY => {
-            running = false;
+            global_running = false;
         },
         win.WM_CLOSE => {
-            running = false;
+            global_running = false;
         },
         win.WM_ACTIVATEAPP => {
             std.log.info("WM_ACTIVATEAPP", .{});
@@ -147,6 +147,7 @@ fn resizeDIBSection(buffer: *OffscreenBuffer, width: i32, height: i32) void {
     buffer.bytes_per_pixel = 4;
 
     buffer.info.bmiHeader.biWidth = buffer.width;
+    // NOTE: Negative height for top-down DIB
     buffer.info.bmiHeader.biHeight = -buffer.height;
     buffer.info.bmiHeader.biSize = @sizeOf(win.BITMAPINFOHEADER);
     buffer.info.bmiHeader.biPlanes = 1;
