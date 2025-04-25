@@ -23,6 +23,8 @@ pub export fn main(
     _ = cmd_line;
     _ = cmd_show;
 
+    resizeDIBSection(&global_backbuffer, 1280, 720);
+
     const window_class = win.WNDCLASSA{
         .style = win.CS_HREDRAW | win.CS_VREDRAW,
         .lpfnWndProc = mainWindowCallback,
@@ -54,8 +56,9 @@ pub export fn main(
         // TODO: Handle error the zig way?
         return 1;
     };
+
     var x_offset: u32 = 0;
-    const y_offset: u32 = 0;
+    var y_offset: u32 = 0;
     while (running) {
         var msg: win.MSG = undefined;
         while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
@@ -82,6 +85,7 @@ pub export fn main(
             );
         }
         x_offset += 1;
+        y_offset += 1;
     }
     return 0;
 }
@@ -95,17 +99,11 @@ fn mainWindowCallback(
     var result: win.LRESULT = 0;
 
     switch (message) {
-        win.WM_SIZE => {
-            std.log.info("WM_SIZE", .{});
-            const window_dimensions = getWindowDimensions(window);
-            resizeDIBSection(&global_backbuffer, window_dimensions.width, window_dimensions.height);
-        },
+        win.WM_SIZE => {},
         win.WM_DESTROY => {
-            std.log.info("WM_DESTROY", .{});
             running = false;
         },
         win.WM_CLOSE => {
-            std.log.info("WM_CLOSE", .{});
             running = false;
         },
         win.WM_ACTIVATEAPP => {
@@ -133,7 +131,6 @@ fn mainWindowCallback(
             _ = win.EndPaint(window, &ps);
         },
         else => {
-            // std.log.info("Unknown message: {}", .{message});
             result = win.DefWindowProcA(window, message, wparam, lparam);
         },
     }
@@ -203,8 +200,8 @@ fn displayBufferInWindow(
         device_context,
         // x, y, width, height,
         // x, y, width, height,
-        0, 0, buffer.width, buffer.height,
         0, 0, window_width, window_height,
+        0, 0, buffer.width, buffer.height,
         buffer.bits,
         &buffer.info,
         win.DIB_RGB_COLORS, win.SRCCOPY,
