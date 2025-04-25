@@ -77,10 +77,6 @@ pub export fn main(
                 window_dimensions.width,
                 window_dimensions.height,
                 global_backbuffer,
-                0,
-                0,
-                window_dimensions.width,
-                window_dimensions.height,
             );
         }
         x_offset += 1;
@@ -110,21 +106,12 @@ fn mainWindowCallback(
         win.WM_PAINT => {
             var ps: win.PAINTSTRUCT = undefined;
             const device_context = win.BeginPaint(window, &ps);
-            const x = ps.rcPaint.left;
-            const y = ps.rcPaint.top;
-            const width = ps.rcPaint.right - ps.rcPaint.left;
-            const height = ps.rcPaint.bottom - ps.rcPaint.top;
-
             const window_dimensions = getWindowDimensions(window);
             displayBufferInWindow(
                 device_context,
                 window_dimensions.width,
                 window_dimensions.height,
                 global_backbuffer,
-                x,
-                y,
-                width,
-                height,
             );
             _ = win.EndPaint(window, &ps);
         },
@@ -184,15 +171,7 @@ fn displayBufferInWindow(
     window_width: i32,
     window_height: i32,
     buffer: OffscreenBuffer,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
 ) void {
-    _ = x;
-    _ = y;
-    _ = width;
-    _ = height;
 
     // zig fmt: off
     _ = win.StretchDIBits(
