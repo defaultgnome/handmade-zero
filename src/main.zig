@@ -69,18 +69,16 @@ pub export fn main(
         {
             const device_context = win.GetDC(window);
             defer _ = win.ReleaseDC(window, device_context);
-            var client_rect: win.RECT = undefined;
-            _ = win.GetClientRect(window, &client_rect);
-            const window_width = client_rect.right - client_rect.left;
-            const window_height = client_rect.bottom - client_rect.top;
+            const window_dimensions = getWindowDimensions(window);
             displayBufferInWindow(
                 device_context,
-                client_rect,
+                window_dimensions.width,
+                window_dimensions.height,
                 global_backbuffer,
                 0,
                 0,
-                window_width,
-                window_height,
+                window_dimensions.width,
+                window_dimensions.height,
             );
         }
         x_offset += 1;
@@ -99,11 +97,8 @@ fn mainWindowCallback(
     switch (message) {
         win.WM_SIZE => {
             std.log.info("WM_SIZE", .{});
-            var client_rect: win.RECT = undefined;
-            _ = win.GetClientRect(window, &client_rect);
-            const width: i32 = @intCast(client_rect.right - client_rect.left);
-            const height: i32 = @intCast(client_rect.bottom - client_rect.top);
-            resizeDIBSection(&global_backbuffer, width, height);
+            const window_dimensions = getWindowDimensions(window);
+            resizeDIBSection(&global_backbuffer, window_dimensions.width, window_dimensions.height);
         },
         win.WM_DESTROY => {
             std.log.info("WM_DESTROY", .{});
@@ -124,11 +119,11 @@ fn mainWindowCallback(
             const width = ps.rcPaint.right - ps.rcPaint.left;
             const height = ps.rcPaint.bottom - ps.rcPaint.top;
 
-            var client_rect: win.RECT = undefined;
-            _ = win.GetClientRect(window, &client_rect);
+            const window_dimensions = getWindowDimensions(window);
             displayBufferInWindow(
                 device_context,
-                client_rect,
+                window_dimensions.width,
+                window_dimensions.height,
                 global_backbuffer,
                 x,
                 y,
@@ -190,7 +185,8 @@ fn renderWeirdGradient(buffer: OffscreenBuffer, x_offset: u32, y_offset: u32) vo
 
 fn displayBufferInWindow(
     device_context: win.HDC,
-    rect: win.RECT,
+    window_width: i32,
+    window_height: i32,
     buffer: OffscreenBuffer,
     x: i32,
     y: i32,
@@ -201,9 +197,6 @@ fn displayBufferInWindow(
     _ = y;
     _ = width;
     _ = height;
-
-    const window_width = rect.right - rect.left;
-    const window_height = rect.bottom - rect.top;
 
     // zig fmt: off
     _ = win.StretchDIBits(
@@ -217,4 +210,17 @@ fn displayBufferInWindow(
         win.DIB_RGB_COLORS, win.SRCCOPY,
     );
     // zig fmt: on
+}
+
+const WindowDimensions = struct {
+    width: i32,
+    height: i32,
+};
+fn getWindowDimensions(window: win.HWND) WindowDimensions {
+    var rect: win.RECT = undefined;
+    _ = win.GetClientRect(window, &rect);
+    return WindowDimensions{
+        .width = rect.right - rect.left,
+        .height = rect.bottom - rect.top,
+    };
 }
