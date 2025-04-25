@@ -26,7 +26,7 @@ pub export fn main(
     resizeDIBSection(&global_backbuffer, 1280, 720);
 
     const window_class = win.WNDCLASSA{
-        .style = win.CS_HREDRAW | win.CS_VREDRAW,
+        .style = win.CS_HREDRAW | win.CS_VREDRAW | win.CS_OWNDC,
         .lpfnWndProc = mainWindowCallback,
         .hInstance = @constCast(@ptrCast(&inst)),
         // .hIcon = ;
@@ -56,6 +56,7 @@ pub export fn main(
         // TODO: Handle error the zig way?
         return 1;
     };
+    const device_context = win.GetDC(window);
 
     var x_offset: u32 = 0;
     var y_offset: u32 = 0;
@@ -70,8 +71,6 @@ pub export fn main(
         }
         renderWeirdGradient(global_backbuffer, x_offset, y_offset);
         {
-            const device_context = win.GetDC(window);
-            defer _ = win.ReleaseDC(window, device_context);
             const window_dimensions = getWindowDimensions(window);
             displayBufferInWindow(
                 device_context,
