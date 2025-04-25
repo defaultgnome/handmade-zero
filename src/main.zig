@@ -98,7 +98,6 @@ fn mainWindowCallback(
     var result: win.LRESULT = 0;
 
     switch (message) {
-        win.WM_SIZE => {},
         win.WM_DESTROY => {
             global_running = false;
         },
