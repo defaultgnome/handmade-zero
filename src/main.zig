@@ -7,7 +7,6 @@ const OffscreenBuffer = struct {
     width: i32,
     height: i32,
     pitch: usize,
-    bytes_per_pixel: i32,
 };
 
 var global_running = true;
@@ -129,7 +128,7 @@ fn resizeDIBSection(buffer: *OffscreenBuffer, width: i32, height: i32) void {
 
     buffer.width = width;
     buffer.height = height;
-    buffer.bytes_per_pixel = 4;
+    const bytes_per_pixel = 4;
 
     buffer.info.bmiHeader.biWidth = buffer.width;
     // NOTE: Negative height for top-down DIB
@@ -139,7 +138,7 @@ fn resizeDIBSection(buffer: *OffscreenBuffer, width: i32, height: i32) void {
     buffer.info.bmiHeader.biBitCount = 32;
     buffer.info.bmiHeader.biCompression = win.BI_RGB;
 
-    const bitsmap_size: c_ulonglong = @intCast(buffer.width * buffer.height * buffer.bytes_per_pixel);
+    const bitsmap_size: c_ulonglong = @intCast(buffer.width * buffer.height * bytes_per_pixel);
     buffer.bits = win.VirtualAlloc(
         null,
         bitsmap_size,
@@ -147,7 +146,7 @@ fn resizeDIBSection(buffer: *OffscreenBuffer, width: i32, height: i32) void {
         win.PAGE_READWRITE,
     );
 
-    buffer.pitch = @intCast(buffer.width * buffer.bytes_per_pixel);
+    buffer.pitch = @intCast(buffer.width * bytes_per_pixel);
 }
 
 fn renderWeirdGradient(buffer: OffscreenBuffer, x_offset: u32, y_offset: u32) void {
