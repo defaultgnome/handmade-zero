@@ -88,8 +88,8 @@ pub export fn main(
     };
     const device_context = win.GetDC(window);
 
-    var x_offset: u32 = 0;
-    var y_offset: u32 = 0;
+    var x_offset: i32 = 0;
+    var y_offset: i32 = 0;
     while (global_running) {
         var msg: win.MSG = undefined;
         while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
@@ -113,15 +113,15 @@ pub export fn main(
                 // const back = (pad.wButtons & xinput.XINPUT_GAMEPAD_BACK) != 0;
                 // const left_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_LEFT_SHOULDER) != 0;
                 // const right_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0;
-                const a_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_A) != 0;
+                // const a_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_A) != 0;
                 // const b_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_B) != 0;
                 // const x_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_X) != 0;
                 // const y_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_Y) != 0;
-                // const stick_left_x = pad.sThumbLX;
-                // const stick_left_y = pad.sThumbLY;
-                if (a_button) {
-                    y_offset += 1;
-                }
+                const stick_left_x = pad.sThumbLX;
+                const stick_left_y = pad.sThumbLY;
+
+                y_offset += @intCast(stick_left_y >> 12);
+                x_offset += @intCast(stick_left_x >> 12);
             } else {
                 // Controller is not connected
             }
@@ -138,7 +138,6 @@ pub export fn main(
                 window_dimensions.height,
             );
         }
-        x_offset += 1;
     }
     return 0;
 }
@@ -234,15 +233,15 @@ fn resizeDIBSection(buffer: *OffscreenBuffer, width: i32, height: i32) void {
     buffer.pitch = @intCast(buffer.width * bytes_per_pixel);
 }
 
-fn renderWeirdGradient(buffer: *OffscreenBuffer, x_offset: u32, y_offset: u32) void {
+fn renderWeirdGradient(buffer: *OffscreenBuffer, x_offset: i32, y_offset: i32) void {
     const h = @as(usize, @intCast(buffer.height));
     const w = @as(usize, @intCast(buffer.width));
     var row: [*]u8 = @ptrCast(buffer.bits);
     for (0..h) |y| {
         var pixel: [*]u32 = @ptrCast(@alignCast(row));
         for (0..w) |x| {
-            const blue: u8 = @truncate(@as(u32, @intCast(x)) + x_offset);
-            const green: u16 = @truncate(@as(u32, @intCast(y)) + y_offset);
+            const blue: u8 = @truncate(@abs(@as(i32, @intCast(x)) + x_offset));
+            const green: u16 = @truncate(@abs(@as(i32, @intCast(y)) + y_offset));
             pixel[0] = (green << 8) | blue;
             pixel += 1;
         }
