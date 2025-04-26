@@ -168,6 +168,7 @@ fn mainWindowCallback(
             const vk_code = wparam;
             const was_down = (lparam & (1 << 30)) != 0;
             const is_down = (lparam & (1 << 31)) == 0;
+            const alt_key_was_down = (lparam & (1 << 29)) != 0;
             if (is_down != was_down) {
                 switch (vk_code) {
                     'W' => {},
@@ -181,8 +182,9 @@ fn mainWindowCallback(
                     win.VK_LEFT => {},
                     win.VK_RIGHT => {},
                     win.VK_SPACE => {},
-                    win.VK_ESCAPE => {
-                        if (is_down and !was_down) {
+                    win.VK_ESCAPE => {},
+                    win.VK_F4 => {
+                        if (alt_key_was_down) {
                             global_running = false;
                         }
                     },
