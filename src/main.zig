@@ -127,15 +127,15 @@ pub export fn main(
             }
         }
 
-        renderWeirdGradient(global_backbuffer, x_offset, y_offset);
+        renderWeirdGradient(&global_backbuffer, x_offset, y_offset);
 
         {
             const window_dimensions = getWindowDimensions(window);
             displayBufferInWindow(
+                &global_backbuffer,
                 device_context,
                 window_dimensions.width,
                 window_dimensions.height,
-                global_backbuffer,
             );
         }
         x_offset += 1;
@@ -192,10 +192,10 @@ fn mainWindowCallback(
             const device_context = win.BeginPaint(window, &ps);
             const window_dimensions = getWindowDimensions(window);
             displayBufferInWindow(
+                &global_backbuffer,
                 device_context,
                 window_dimensions.width,
                 window_dimensions.height,
-                global_backbuffer,
             );
             _ = win.EndPaint(window, &ps);
         },
@@ -234,7 +234,7 @@ fn resizeDIBSection(buffer: *OffscreenBuffer, width: i32, height: i32) void {
     buffer.pitch = @intCast(buffer.width * bytes_per_pixel);
 }
 
-fn renderWeirdGradient(buffer: OffscreenBuffer, x_offset: u32, y_offset: u32) void {
+fn renderWeirdGradient(buffer: *OffscreenBuffer, x_offset: u32, y_offset: u32) void {
     const h = @as(usize, @intCast(buffer.height));
     const w = @as(usize, @intCast(buffer.width));
     var row: [*]u8 = @ptrCast(buffer.bits);
@@ -251,10 +251,10 @@ fn renderWeirdGradient(buffer: OffscreenBuffer, x_offset: u32, y_offset: u32) vo
 }
 
 fn displayBufferInWindow(
+    buffer: *OffscreenBuffer,
     device_context: win.HDC,
     window_width: i32,
     window_height: i32,
-    buffer: OffscreenBuffer,
 ) void {
 
     // zig fmt: off
