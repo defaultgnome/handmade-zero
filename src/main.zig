@@ -1,6 +1,7 @@
 const std = @import("std");
 const win = @cImport(@cInclude("windows.h"));
 const xinput = @cImport(@cInclude("xinput.h"));
+const dsound = @cImport(@cInclude("dsound.h"));
 
 const OffscreenBuffer = struct {
     info: win.BITMAPINFO,
@@ -9,38 +10,6 @@ const OffscreenBuffer = struct {
     height: i32,
     pitch: usize,
 };
-
-const XInputGetStateFn = *const fn (dwUserIndex: xinput.DWORD, pState: *xinput.XINPUT_STATE) callconv(.winapi) xinput.DWORD;
-const XInputSetStateFn = *const fn (dwUserIndex: xinput.DWORD, pVibration: *xinput.XINPUT_VIBRATION) callconv(.winapi) xinput.DWORD;
-
-fn XInputSetStateStub(dwUserIndex: xinput.DWORD, pVibration: *xinput.XINPUT_VIBRATION) callconv(.winapi) xinput.DWORD {
-    _ = dwUserIndex;
-    _ = pVibration;
-    return win.ERROR_DEVICE_NOT_CONNECTED;
-}
-
-fn XInputGetStateStub(dwUserIndex: xinput.DWORD, pState: *xinput.XINPUT_STATE) callconv(.winapi) xinput.DWORD {
-    _ = dwUserIndex;
-    _ = pState;
-    return win.ERROR_DEVICE_NOT_CONNECTED;
-}
-
-var XInputGetState: XInputGetStateFn = XInputGetStateStub;
-var XInputSetState: XInputSetStateFn = XInputSetStateStub;
-
-fn loadXInput() void {
-    var xinput_library: win.HMODULE = undefined;
-    xinput_library = win.LoadLibraryA("xinput1_4.dll");
-    if (xinput_library == null) {
-        xinput_library = win.LoadLibraryA("xinput1_3.dll");
-    }
-    if (xinput_library == null) {
-        std.log.info("Failed to load xinput1_3.dll", .{});
-        return;
-    }
-    XInputGetState = @ptrCast(win.GetProcAddress(xinput_library, "XInputGetState"));
-    XInputSetState = @ptrCast(win.GetProcAddress(xinput_library, "XInputSetState"));
-}
 
 var global_running = true;
 var global_backbuffer: OffscreenBuffer = undefined;
@@ -90,6 +59,9 @@ pub export fn main(
         // TODO: Handle error the zig way?
         return 1;
     };
+
+    loadDSound(window, 48_000, 48_000 * @sizeOf(u16) * 2);
+
     const device_context = win.GetDC(window);
 
     var x_offset: i32 = 0;
@@ -287,4 +259,92 @@ fn getWindowDimensions(window: win.HWND) WindowDimensions {
         .width = rect.right - rect.left,
         .height = rect.bottom - rect.top,
     };
+}
+
+// === XInput ===
+const XInputSetStateFn = *const fn (dwUserIndex: xinput.DWORD, pVibration: *xinput.XINPUT_VIBRATION) callconv(.winapi) xinput.DWORD;
+fn XInputSetStateStub(dwUserIndex: xinput.DWORD, pVibration: *xinput.XINPUT_VIBRATION) callconv(.winapi) xinput.DWORD {
+    _ = dwUserIndex;
+    _ = pVibration;
+    return win.ERROR_DEVICE_NOT_CONNECTED;
+}
+var XInputSetState: XInputSetStateFn = XInputSetStateStub;
+
+const XInputGetStateFn = *const fn (dwUserIndex: xinput.DWORD, pState: *xinput.XINPUT_STATE) callconv(.winapi) xinput.DWORD;
+fn XInputGetStateStub(dwUserIndex: xinput.DWORD, pState: *xinput.XINPUT_STATE) callconv(.winapi) xinput.DWORD {
+    _ = dwUserIndex;
+    _ = pState;
+    return win.ERROR_DEVICE_NOT_CONNECTED;
+}
+var XInputGetState: XInputGetStateFn = XInputGetStateStub;
+
+fn loadXInput() void {
+    var xinput_library: win.HMODULE = undefined;
+    xinput_library = win.LoadLibraryA("xinput1_4.dll");
+    if (xinput_library == null) {
+        xinput_library = win.LoadLibraryA("xinput1_3.dll");
+    }
+    if (xinput_library == null) {
+        std.log.info("Failed to load xinput1_3.dll", .{});
+        return;
+    }
+    XInputGetState = @ptrCast(win.GetProcAddress(xinput_library, "XInputGetState"));
+    XInputSetState = @ptrCast(win.GetProcAddress(xinput_library, "XInputSetState"));
+}
+
+// === DirectSound ===
+const DirectSoundCreateFn = *const fn (lpGuid: *const win.GUID, lplpDS: *?*dsound.IDirectSound, pUnkOuter: ?*anyopaque) callconv(.winapi) win.HRESULT;
+
+fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
+    const dsound_lib = win.LoadLibraryA("dsound.dll");
+    if (dsound_lib == null) {
+        std.log.info("Failed to load dsound.dll", .{});
+        return;
+    }
+    const DirectSoundCreate: ?DirectSoundCreateFn = @ptrCast(win.GetProcAddress(dsound_lib, "DirectSoundCreate"));
+    if (DirectSoundCreate != null) {
+        var direct_sound: dsound.LPDIRECTSOUND = undefined;
+        if (dsound.SUCCEEDED(DirectSoundCreate.?(&win.GUID_NULL, &direct_sound, null))) {
+            var wave_format: dsound.WAVEFORMATEX = std.mem.zeroes(dsound.WAVEFORMATEX);
+            wave_format.wFormatTag = dsound.WAVE_FORMAT_PCM;
+            wave_format.nChannels = 2;
+            wave_format.nSamplesPerSec = sample_per_second;
+            wave_format.nBlockAlign = (wave_format.nChannels * wave_format.wBitsPerSample) / 8;
+            wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec * wave_format.nBlockAlign;
+            wave_format.wBitsPerSample = 16;
+            wave_format.cbSize = 0;
+
+            if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.SetCooperativeLevel.?(direct_sound, @ptrCast(window), dsound.DSSCL_PRIORITY))) {
+                var buffer_desc: dsound.DSBUFFERDESC = std.mem.zeroes(dsound.DSBUFFERDESC);
+                buffer_desc.dwSize = @sizeOf(dsound.DSBUFFERDESC);
+                buffer_desc.dwFlags = dsound.DSBCAPS_PRIMARYBUFFER;
+                var primary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
+                if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &primary_buffer, null))) {
+                    if (dsound.SUCCEEDED(primary_buffer.*.lpVtbl.*.SetFormat.?(primary_buffer, &wave_format))) {
+                        std.log.info("Primary buffer format set", .{});
+                    } else {
+                        std.log.info("Failed to set primary buffer format", .{});
+                    }
+                } else {
+                    std.log.info("Failed to create primary buffer", .{});
+                }
+            } else {
+                std.log.info("Failed to set cooperative level", .{});
+            }
+
+            var buffer_desc: dsound.DSBUFFERDESC = std.mem.zeroes(dsound.DSBUFFERDESC);
+            buffer_desc.dwSize = @sizeOf(dsound.DSBUFFERDESC);
+            buffer_desc.dwFlags = 0;
+            buffer_desc.dwBufferBytes = buffer_size;
+            buffer_desc.lpwfxFormat = &wave_format;
+            var secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
+            if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &secondary_buffer, null))) {
+                std.log.info("Secondary buffer created", .{});
+            } else {
+                std.log.info("Failed to create secondary buffer", .{});
+            }
+        } else {
+            std.log.info("DirectSoundCreate failed", .{});
+        }
+    }
 }
