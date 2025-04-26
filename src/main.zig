@@ -13,8 +13,20 @@ const OffscreenBuffer = struct {
 const XInputGetStateFn = *const fn (dwUserIndex: xinput.DWORD, pState: *xinput.XINPUT_STATE) callconv(.winapi) xinput.DWORD;
 const XInputSetStateFn = *const fn (dwUserIndex: xinput.DWORD, pVibration: *xinput.XINPUT_VIBRATION) callconv(.winapi) xinput.DWORD;
 
-var XInputGetState: ?XInputGetStateFn = null;
-var XInputSetState: ?XInputSetStateFn = null;
+fn XInputSetStateStub(dwUserIndex: xinput.DWORD, pVibration: *xinput.XINPUT_VIBRATION) callconv(.winapi) xinput.DWORD {
+    _ = dwUserIndex;
+    _ = pVibration;
+    return 0;
+}
+
+fn XInputGetStateStub(dwUserIndex: xinput.DWORD, pState: *xinput.XINPUT_STATE) callconv(.winapi) xinput.DWORD {
+    _ = dwUserIndex;
+    _ = pState;
+    return 0;
+}
+
+var XInputGetState: XInputGetStateFn = XInputGetStateStub;
+var XInputSetState: XInputSetStateFn = XInputSetStateStub;
 
 fn loadXInput() void {
     const xinput_library = win.LoadLibraryA("xinput1_3.dll");
@@ -88,32 +100,30 @@ pub export fn main(
             _ = win.DispatchMessageA(&msg);
         }
 
-        if (XInputGetState != null and XInputSetState != null) {
-            for (0..xinput.XUSER_MAX_COUNT) |controller_index| {
-                var controller_state: xinput.XINPUT_STATE = undefined;
-                if (XInputGetState.?(@intCast(controller_index), &controller_state) == win.ERROR_SUCCESS) {
-                    // Controller is connected
-                    const pad: xinput.XINPUT_GAMEPAD = controller_state.Gamepad;
-                    // const up = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_UP) != 0;
-                    // const down = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_DOWN) != 0;
-                    // const left = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_LEFT) != 0;
-                    // const right = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_RIGHT) != 0;
-                    // const start = (pad.wButtons & xinput.XINPUT_GAMEPAD_START) != 0;
-                    // const back = (pad.wButtons & xinput.XINPUT_GAMEPAD_BACK) != 0;
-                    // const left_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_LEFT_SHOULDER) != 0;
-                    // const right_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0;
-                    const a_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_A) != 0;
-                    // const b_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_B) != 0;
-                    // const x_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_X) != 0;
-                    // const y_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_Y) != 0;
-                    // const stick_left_x = pad.sThumbLX;
-                    // const stick_left_y = pad.sThumbLY;
-                    if (a_button) {
-                        y_offset += 1;
-                    }
-                } else {
-                    // Controller is not connected
+        for (0..xinput.XUSER_MAX_COUNT) |controller_index| {
+            var controller_state: xinput.XINPUT_STATE = undefined;
+            if (XInputGetState(@intCast(controller_index), &controller_state) == win.ERROR_SUCCESS) {
+                // Controller is connected
+                const pad: xinput.XINPUT_GAMEPAD = controller_state.Gamepad;
+                // const up = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_UP) != 0;
+                // const down = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_DOWN) != 0;
+                // const left = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_LEFT) != 0;
+                // const right = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_RIGHT) != 0;
+                // const start = (pad.wButtons & xinput.XINPUT_GAMEPAD_START) != 0;
+                // const back = (pad.wButtons & xinput.XINPUT_GAMEPAD_BACK) != 0;
+                // const left_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_LEFT_SHOULDER) != 0;
+                // const right_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0;
+                const a_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_A) != 0;
+                // const b_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_B) != 0;
+                // const x_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_X) != 0;
+                // const y_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_Y) != 0;
+                // const stick_left_x = pad.sThumbLX;
+                // const stick_left_y = pad.sThumbLY;
+                if (a_button) {
+                    y_offset += 1;
                 }
+            } else {
+                // Controller is not connected
             }
         }
 
