@@ -161,6 +161,32 @@ fn mainWindowCallback(
         win.WM_ACTIVATEAPP => {
             std.log.info("WM_ACTIVATEAPP", .{});
         },
+        win.WM_SYSKEYDOWN, win.WM_SYSKEYUP, win.WM_KEYDOWN, win.WM_KEYUP => {
+            const vk_code = wparam;
+            const was_down = (lparam & (1 << 30)) != 0;
+            const is_down = (lparam & (1 << 31)) == 0;
+            if (is_down != was_down) {
+                switch (vk_code) {
+                    'W' => {},
+                    'A' => {},
+                    'S' => {},
+                    'D' => {},
+                    'Q' => {},
+                    'E' => {},
+                    win.VK_UP => {},
+                    win.VK_DOWN => {},
+                    win.VK_LEFT => {},
+                    win.VK_RIGHT => {},
+                    win.VK_SPACE => {},
+                    win.VK_ESCAPE => {
+                        if (is_down and !was_down) {
+                            global_running = false;
+                        }
+                    },
+                    else => {},
+                }
+            }
+        },
         win.WM_PAINT => {
             var ps: win.PAINTSTRUCT = undefined;
             const device_context = win.BeginPaint(window, &ps);
