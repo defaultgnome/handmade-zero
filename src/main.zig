@@ -16,13 +16,13 @@ const XInputSetStateFn = *const fn (dwUserIndex: xinput.DWORD, pVibration: *xinp
 fn XInputSetStateStub(dwUserIndex: xinput.DWORD, pVibration: *xinput.XINPUT_VIBRATION) callconv(.winapi) xinput.DWORD {
     _ = dwUserIndex;
     _ = pVibration;
-    return 0;
+    return win.ERROR_DEVICE_NOT_CONNECTED;
 }
 
 fn XInputGetStateStub(dwUserIndex: xinput.DWORD, pState: *xinput.XINPUT_STATE) callconv(.winapi) xinput.DWORD {
     _ = dwUserIndex;
     _ = pState;
-    return 0;
+    return win.ERROR_DEVICE_NOT_CONNECTED;
 }
 
 var XInputGetState: XInputGetStateFn = XInputGetStateStub;
