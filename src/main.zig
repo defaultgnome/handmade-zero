@@ -309,9 +309,9 @@ fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
             wave_format.wFormatTag = dsound.WAVE_FORMAT_PCM;
             wave_format.nChannels = 2;
             wave_format.nSamplesPerSec = sample_per_second;
+            wave_format.wBitsPerSample = 16;
             wave_format.nBlockAlign = (wave_format.nChannels * wave_format.wBitsPerSample) / 8;
             wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec * wave_format.nBlockAlign;
-            wave_format.wBitsPerSample = 16;
             wave_format.cbSize = 0;
 
             if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.SetCooperativeLevel.?(direct_sound, @ptrCast(window), dsound.DSSCL_PRIORITY))) {
