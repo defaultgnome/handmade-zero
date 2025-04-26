@@ -204,7 +204,7 @@ fn resizeDIBSection(buffer: *OffscreenBuffer, width: i32, height: i32) void {
     buffer.bits = win.VirtualAlloc(
         null,
         bitsmap_size,
-        win.MEM_COMMIT,
+        win.MEM_RESERVE | win.MEM_COMMIT,
         win.PAGE_READWRITE,
     );
 
