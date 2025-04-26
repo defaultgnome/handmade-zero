@@ -29,7 +29,11 @@ var XInputGetState: XInputGetStateFn = XInputGetStateStub;
 var XInputSetState: XInputSetStateFn = XInputSetStateStub;
 
 fn loadXInput() void {
-    const xinput_library = win.LoadLibraryA("xinput1_3.dll");
+    var xinput_library: win.HMODULE = undefined;
+    xinput_library = win.LoadLibraryA("xinput1_4.dll");
+    if (xinput_library == null) {
+        xinput_library = win.LoadLibraryA("xinput1_3.dll");
+    }
     if (xinput_library == null) {
         std.log.info("Failed to load xinput1_3.dll", .{});
         return;
