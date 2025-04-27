@@ -13,6 +13,7 @@ const OffscreenBuffer = struct {
 
 var global_running = true;
 var global_backbuffer: OffscreenBuffer = undefined;
+var global_secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
 
 pub export fn main(
     inst: std.os.windows.HINSTANCE,
@@ -60,12 +61,25 @@ pub export fn main(
         return 1;
     };
 
-    loadDSound(window, 48_000, 48_000 * @sizeOf(u16) * 2);
-
     const device_context = win.GetDC(window);
 
+    // Graphics Test
     var x_offset: i32 = 0;
     var y_offset: i32 = 0;
+
+    // Sound Test
+    const sample_rate = 48_000;
+    const tone_hz = 256;
+    const tone_volume = 0.01 * 32_000;
+    var running_sample_index: u32 = 0;
+    const square_wave_period = sample_rate / tone_hz;
+    const half_square_wave_period = square_wave_period / 2;
+    const bytes_per_sample = @sizeOf(u16) * 2;
+    const secondary_buffer_size = sample_rate * bytes_per_sample;
+
+    loadDSound(window, sample_rate, secondary_buffer_size);
+    _ = global_secondary_buffer.*.lpVtbl.*.Play.?(global_secondary_buffer, 0, 0, dsound.DSBPLAY_LOOPING);
+
     while (global_running) {
         var msg: win.MSG = undefined;
         while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
@@ -104,17 +118,74 @@ pub export fn main(
         }
 
         renderWeirdGradient(&global_backbuffer, x_offset, y_offset);
-
         {
-            const window_dimensions = getWindowDimensions(window);
-            displayBufferInWindow(
-                &global_backbuffer,
-                device_context,
-                window_dimensions.width,
-                window_dimensions.height,
-            );
+            var play_cursor: win.DWORD = undefined;
+            var write_cursor: win.DWORD = undefined;
+            if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &play_cursor, &write_cursor))) {
+                const byte_to_lock: win.DWORD = running_sample_index * bytes_per_sample % secondary_buffer_size;
+                var bytes_to_write: win.DWORD = undefined;
+                if (byte_to_lock > play_cursor) {
+                    bytes_to_write = secondary_buffer_size - byte_to_lock;
+                    bytes_to_write += play_cursor;
+                } else {
+                    bytes_to_write = play_cursor - byte_to_lock;
+                }
+
+                var region1: win.LPVOID = undefined;
+                var region2: win.LPVOID = undefined;
+                var region1_size: win.DWORD = undefined;
+                var region2_size: win.DWORD = undefined;
+
+                if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.Lock.?(
+                    global_secondary_buffer,
+                    byte_to_lock,
+                    bytes_to_write,
+                    &region1,
+                    &region1_size,
+                    &region2,
+                    &region2_size,
+                    0,
+                ))) {
+                    var sample_out: [*]i16 = @ptrCast(@alignCast(region1));
+                    const region1_sample_count = region1_size / bytes_per_sample;
+                    for (0..region1_sample_count) |_| {
+                        const sample_value: i16 = if ((running_sample_index / half_square_wave_period) % 2 == 0) tone_volume else -tone_volume;
+                        sample_out[0] = sample_value;
+                        sample_out += 1;
+                        sample_out[0] = sample_value;
+                        sample_out += 1;
+                        running_sample_index += 1;
+                    }
+
+                    if (region2 != null) {
+                        sample_out = @ptrCast(@alignCast(region2));
+                        const region2_sample_count = region2_size / bytes_per_sample;
+                        for (0..region2_sample_count) |_| {
+                            const sample_value: i16 = if ((running_sample_index / half_square_wave_period) % 2 == 0) tone_volume else -tone_volume;
+                            sample_out[0] = sample_value;
+                            sample_out += 1;
+                            sample_out[0] = sample_value;
+                            sample_out += 1;
+                            running_sample_index += 1;
+                        }
+                    }
+
+                    _ = global_secondary_buffer.*.lpVtbl.*.Unlock.?(global_secondary_buffer, region1, region1_size, region2, region2_size);
+                }
+
+                {
+                    const window_dimensions = getWindowDimensions(window);
+                    displayBufferInWindow(
+                        &global_backbuffer,
+                        device_context,
+                        window_dimensions.width,
+                        window_dimensions.height,
+                    );
+                }
+            }
         }
     }
+
     return 0;
 }
 
@@ -293,7 +364,11 @@ fn loadXInput() void {
 }
 
 // === DirectSound ===
-const DirectSoundCreateFn = *const fn (lpGuid: *const win.GUID, lplpDS: *?*dsound.IDirectSound, pUnkOuter: ?*anyopaque) callconv(.winapi) win.HRESULT;
+const DirectSoundCreateFn = *const fn (
+    lpGuid: *const win.GUID,
+    lplpDS: *?*dsound.IDirectSound,
+    pUnkOuter: ?*anyopaque,
+) callconv(.winapi) win.HRESULT;
 
 fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
     const dsound_lib = win.LoadLibraryA("dsound.dll");
@@ -337,8 +412,7 @@ fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
             buffer_desc.dwFlags = 0;
             buffer_desc.dwBufferBytes = buffer_size;
             buffer_desc.lpwfxFormat = &wave_format;
-            var secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
-            if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &secondary_buffer, null))) {
+            if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &global_secondary_buffer, null))) {
                 std.log.info("Secondary buffer created", .{});
             } else {
                 std.log.info("Failed to create secondary buffer", .{});
