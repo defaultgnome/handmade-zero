@@ -76,9 +76,9 @@ pub export fn main(
     const half_square_wave_period = square_wave_period / 2;
     const bytes_per_sample = @sizeOf(u16) * 2;
     const secondary_buffer_size = sample_rate * bytes_per_sample;
+    var is_sound_playing = false;
 
     loadDSound(window, sample_rate, secondary_buffer_size);
-    _ = global_secondary_buffer.*.lpVtbl.*.Play.?(global_secondary_buffer, 0, 0, dsound.DSBPLAY_LOOPING);
 
     while (global_running) {
         var msg: win.MSG = undefined;
@@ -124,7 +124,9 @@ pub export fn main(
             if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &play_cursor, &write_cursor))) {
                 const byte_to_lock: win.DWORD = running_sample_index * bytes_per_sample % secondary_buffer_size;
                 var bytes_to_write: win.DWORD = undefined;
-                if (byte_to_lock > play_cursor) {
+                if (byte_to_lock == play_cursor) {
+                    bytes_to_write = secondary_buffer_size;
+                } else if (byte_to_lock > play_cursor) {
                     bytes_to_write = secondary_buffer_size - byte_to_lock;
                     bytes_to_write += play_cursor;
                 } else {
@@ -171,6 +173,13 @@ pub export fn main(
                     }
 
                     _ = global_secondary_buffer.*.lpVtbl.*.Unlock.?(global_secondary_buffer, region1, region1_size, region2, region2_size);
+                }
+
+                {
+                    if (!is_sound_playing) {
+                        is_sound_playing = true;
+                        _ = global_secondary_buffer.*.lpVtbl.*.Play.?(global_secondary_buffer, 0, 0, dsound.DSBPLAY_LOOPING);
+                    }
                 }
 
                 {
