@@ -311,13 +311,18 @@ fn XInputGetStateStub(dwUserIndex: xinput.DWORD, pState: *xinput.XINPUT_STATE) c
 var XInputGetState: XInputGetStateFn = XInputGetStateStub;
 
 fn loadXInput() void {
+    // TODO(ariel): try to create a wrapper for loadLibraryA that will try to load the dll in the order of the array,
+    // and return the first one that is found. else will throw, the zig way. (rn the caller will just catch and ignore)
+    const versions = [_][*c]const u8{ "xinput1_4.dll", "xinput9_1_0.dll", "xinput1_3.dll" };
     var xinput_library: win.HMODULE = undefined;
-    xinput_library = win.LoadLibraryA("xinput1_4.dll");
-    if (xinput_library == null) {
-        xinput_library = win.LoadLibraryA("xinput1_3.dll");
+    inline for (versions) |version| {
+        xinput_library = win.LoadLibraryA(version);
+        if (xinput_library != null) {
+            break;
+        }
     }
     if (xinput_library == null) {
-        std.log.info("Failed to load xinput1_3.dll", .{});
+        std.log.info("Failed to load xinput.dll", .{});
         return;
     }
     XInputGetState = @ptrCast(win.GetProcAddress(xinput_library, "XInputGetState"));
