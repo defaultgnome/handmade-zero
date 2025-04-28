@@ -62,7 +62,7 @@ pub export fn main(
     // Sound Test
     var sound_output = SoundOutput.init();
     loadDSound(window, sound_output.sample_rate, sound_output.secondary_buffer_size);
-    fillSoundBuffer(&sound_output, 0, sound_output.secondary_buffer_size);
+    fillSoundBuffer(&sound_output, 0, sound_output.latency_sample_count * sound_output.bytes_per_sample);
     _ = global_secondary_buffer.*.lpVtbl.*.Play.?(global_secondary_buffer, 0, 0, dsound.DSBPLAY_LOOPING);
 
     while (global_running) {
@@ -86,17 +86,31 @@ pub export fn main(
                 // const right = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_RIGHT) != 0;
                 // const start = (pad.wButtons & xinput.XINPUT_GAMEPAD_START) != 0;
                 // const back = (pad.wButtons & xinput.XINPUT_GAMEPAD_BACK) != 0;
-                // const left_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_LEFT_SHOULDER) != 0;
+                const left_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_LEFT_SHOULDER) != 0;
                 // const right_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0;
-                // const a_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_A) != 0;
-                // const b_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_B) != 0;
-                // const x_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_X) != 0;
-                // const y_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_Y) != 0;
+                const a_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_A) != 0;
+                const b_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_B) != 0;
+                const x_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_X) != 0;
+                const y_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_Y) != 0;
                 const stick_left_x = pad.sThumbLX;
                 const stick_left_y = pad.sThumbLY;
 
                 y_offset += @intCast(stick_left_y >> 12);
                 x_offset += @intCast(stick_left_x >> 12);
+
+                // pentatonic scale
+                if (left_shoulder) {
+                    const stick_tone_offset: i32 = @intFromFloat(256 * @as(f32, @floatFromInt(stick_left_y >> 12)));
+                    sound_output.setTone(@intCast(@max(128, 512 + stick_tone_offset)));
+                } else if (a_button) {
+                    sound_output.setTone(512);
+                } else if (b_button) {
+                    sound_output.setTone(640);
+                } else if (x_button) {
+                    sound_output.setTone(768);
+                } else if (y_button) {
+                    sound_output.setTone(896);
+                }
             } else {
                 // Controller is not connected
             }
@@ -109,12 +123,13 @@ pub export fn main(
             var write_cursor: win.DWORD = undefined;
             if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &play_cursor, &write_cursor))) {
                 const byte_to_lock: win.DWORD = (sound_output.running_sample_index * sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
+                const target_cursor = (play_cursor + (sound_output.latency_sample_count * sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size;
                 var bytes_to_write: win.DWORD = undefined;
-                if (byte_to_lock > play_cursor) {
+                if (byte_to_lock > target_cursor) {
                     bytes_to_write = sound_output.secondary_buffer_size - byte_to_lock;
-                    bytes_to_write += play_cursor;
+                    bytes_to_write += target_cursor;
                 } else {
-                    bytes_to_write = play_cursor - byte_to_lock;
+                    bytes_to_write = target_cursor - byte_to_lock;
                 }
 
                 fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write);
@@ -378,6 +393,8 @@ const OffscreenBuffer = struct {
 };
 
 const SoundOutput = struct {
+    const Self = @This();
+
     sample_rate: u32,
     tone_hz: u32,
     tone_volume: f32,
@@ -385,9 +402,11 @@ const SoundOutput = struct {
     wave_period: u32,
     bytes_per_sample: u32,
     secondary_buffer_size: u32,
+    t_sine: f32,
+    latency_sample_count: u32,
 
-    fn init() SoundOutput {
-        var output = SoundOutput{
+    pub fn init() Self {
+        var output = Self{
             .sample_rate = 48_000,
             .tone_hz = 256,
             .tone_volume = 0.1 * 32_000,
@@ -395,10 +414,22 @@ const SoundOutput = struct {
             .wave_period = undefined,
             .bytes_per_sample = @sizeOf(u16) * 2,
             .secondary_buffer_size = undefined,
+            .t_sine = 0,
+            .latency_sample_count = undefined,
         };
-        output.wave_period = output.sample_rate / output.tone_hz;
         output.secondary_buffer_size = output.sample_rate * output.bytes_per_sample;
+        output.latency_sample_count = output.sample_rate / 15;
+        output.calculateWavePeriod();
         return output;
+    }
+
+    pub fn setTone(self: *Self, tone_hz: u32) void {
+        self.tone_hz = tone_hz;
+        self.calculateWavePeriod();
+    }
+
+    fn calculateWavePeriod(self: *Self) void {
+        self.wave_period = self.sample_rate / self.tone_hz;
     }
 };
 
@@ -421,12 +452,13 @@ fn fillSoundBuffer(sound_output: *SoundOutput, byte_to_lock: win.DWORD, bytes_to
         var sample_out: [*]i16 = @ptrCast(@alignCast(region1));
         const region1_sample_count = region1_size / sound_output.bytes_per_sample;
         for (0..region1_sample_count) |_| {
-            const t: f32 = std.math.tau * @as(f32, @floatFromInt(sound_output.running_sample_index)) / @as(f32, @floatFromInt(sound_output.wave_period));
-            const sine_value: f32 = @sin(t);
+            const sine_value: f32 = @sin(sound_output.t_sine);
             const sample_value: i16 = @intFromFloat(sine_value * sound_output.tone_volume);
             sample_out[0] = sample_value;
             sample_out[1] = sample_value;
             sample_out += 2;
+
+            sound_output.t_sine += (std.math.tau * 1) / @as(f32, @floatFromInt(sound_output.wave_period));
             sound_output.running_sample_index += 1;
         }
 
@@ -434,12 +466,12 @@ fn fillSoundBuffer(sound_output: *SoundOutput, byte_to_lock: win.DWORD, bytes_to
             sample_out = @ptrCast(@alignCast(region2));
             const region2_sample_count = region2_size / sound_output.bytes_per_sample;
             for (0..region2_sample_count) |_| {
-                const t: f32 = std.math.tau * @as(f32, @floatFromInt(sound_output.running_sample_index)) / @as(f32, @floatFromInt(sound_output.wave_period));
-                const sine_value: f32 = @sin(t);
+                const sine_value: f32 = @sin(sound_output.t_sine);
                 const sample_value: i16 = @intFromFloat(sine_value * sound_output.tone_volume);
                 sample_out[0] = sample_value;
                 sample_out[1] = sample_value;
                 sample_out += 2;
+                sound_output.t_sine += (std.math.tau * 1) / @as(f32, @floatFromInt(sound_output.wave_period));
                 sound_output.running_sample_index += 1;
             }
         }
