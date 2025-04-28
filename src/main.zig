@@ -95,8 +95,8 @@ pub export fn main(
                 const stick_left_x = pad.sThumbLX;
                 const stick_left_y = pad.sThumbLY;
 
-                y_offset += @intCast(stick_left_y >> 12);
-                x_offset += @intCast(stick_left_x >> 12);
+                y_offset += @divTrunc(@as(i32, @intCast(stick_left_y)), 4096);
+                x_offset += @divTrunc(@as(i32, @intCast(stick_left_x)), 4096);
 
                 // pentatonic scale
                 if (left_shoulder) {
