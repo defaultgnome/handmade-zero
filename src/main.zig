@@ -110,9 +110,7 @@ pub export fn main(
             if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &play_cursor, &write_cursor))) {
                 const byte_to_lock: win.DWORD = (sound_output.running_sample_index * sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
                 var bytes_to_write: win.DWORD = undefined;
-                if (byte_to_lock == play_cursor) {
-                    bytes_to_write = 0;
-                } else if (byte_to_lock > play_cursor) {
+                if (byte_to_lock > play_cursor) {
                     bytes_to_write = sound_output.secondary_buffer_size - byte_to_lock;
                     bytes_to_write += play_cursor;
                 } else {
