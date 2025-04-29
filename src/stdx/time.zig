@@ -1,6 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+/// use the `rdtsc` instruction to get the number of clock cycles since the last reset
+///
+/// source: https://github.com/ziglang/zig/issues/22705#issuecomment-2661759383
 pub fn clock_cycles() u64 {
     switch (builtin.target.cpu.arch) {
         // tested with qemu-i386: works
