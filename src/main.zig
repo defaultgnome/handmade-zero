@@ -165,8 +165,7 @@ pub export fn main(
             const end_counter = std.os.windows.QueryPerformanceCounter();
 
             const cycles_elapsed = end_cycles_count - last_cycles_count;
-            // TODO(ariel): as of now `std.time.Instant.since` is not caching the QPF, so it's not efficient
-            // see if zig plan to implement caching in the future, or maybe recreate the `since` method
+            // TODO(ariel): use `std.time.Instant.since`
             const counter_elapsed = end_counter - last_counter;
             const ms_per_frame: f64 = @as(f64, @floatFromInt(1000 * counter_elapsed)) / @as(f64, @floatFromInt(qpf));
             const fps: f64 = @as(f64, @floatFromInt(qpf)) / @as(f64, @floatFromInt(counter_elapsed));
