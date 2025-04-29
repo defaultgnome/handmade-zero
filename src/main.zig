@@ -5,6 +5,10 @@ const xinput = @cImport(@cInclude("xinput.h"));
 const dsound = @cImport(@cInclude("dsound.h"));
 const stdx = @import("stdx/stdx.zig");
 
+pub const std_options: std.Options = .{
+    .log_level = .info,
+};
+
 var global_running = false;
 var global_backbuffer: OffscreenBuffer = undefined;
 var global_secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
