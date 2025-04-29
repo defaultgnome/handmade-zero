@@ -1,12 +1,15 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const win = @cImport(@cInclude("windows.h"));
 const xinput = @cImport(@cInclude("xinput.h"));
 const dsound = @cImport(@cInclude("dsound.h"));
+const stdx = @import("stdx/stdx.zig");
 
-var global_running = true;
+var global_running = false;
 var global_backbuffer: OffscreenBuffer = undefined;
 var global_secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
 
+// TODO(ariel): check how can i still use the normal main function, and not have to use winapi, so later we can have it working for linux/macos
 pub export fn main(
     inst: std.os.windows.HINSTANCE,
     prev: ?std.os.windows.HINSTANCE,
@@ -31,7 +34,7 @@ pub export fn main(
 
     if (win.RegisterClassA(&window_class) == 0) {
         std.log.info("Failed to register window class", .{});
-        // TODO: Handle error the zig way?
+        // TODO(ariel): Handle error the zig way?
         return 1;
     }
     const window = win.CreateWindowExA(
@@ -49,7 +52,7 @@ pub export fn main(
         null,
     ) orelse {
         std.log.info("Failed to create window", .{});
-        // TODO: Handle error the zig way?
+        // TODO(ariel): Handle error the zig way?
         return 1;
     };
 
@@ -64,6 +67,12 @@ pub export fn main(
     loadDSound(window, sound_output.sample_rate, sound_output.secondary_buffer_size);
     fillSoundBuffer(&sound_output, 0, sound_output.latency_sample_count * sound_output.bytes_per_sample);
     _ = global_secondary_buffer.*.lpVtbl.*.Play.?(global_secondary_buffer, 0, 0, dsound.DSBPLAY_LOOPING);
+
+    global_running = true;
+
+    const qpf = std.os.windows.QueryPerformanceFrequency();
+    var last_cycles_count = stdx.time.clock_cycles();
+    var last_counter = std.os.windows.QueryPerformanceCounter();
 
     while (global_running) {
         var msg: win.MSG = undefined;
@@ -144,6 +153,25 @@ pub export fn main(
                     window_dimensions.height,
                 );
             }
+        }
+
+        {
+            const end_cycles_count = stdx.time.clock_cycles();
+
+            const end_counter = std.os.windows.QueryPerformanceCounter();
+
+            const cycles_elapsed = end_cycles_count - last_cycles_count;
+            // TODO(ariel): as of now `std.time.Instant.since` is not caching the QPF, so it's not efficient
+            // see if zig plan to implement caching in the future, or maybe recreate the `since` method
+            const counter_elapsed = end_counter - last_counter;
+            const ms_per_frame: f64 = @as(f64, @floatFromInt(1000 * counter_elapsed)) / @as(f64, @floatFromInt(qpf));
+            const fps: f64 = @as(f64, @floatFromInt(qpf)) / @as(f64, @floatFromInt(counter_elapsed));
+            const mega_hz = 1_000 * 1_000;
+            const mcpf: f64 = @as(f64, @floatFromInt(cycles_elapsed)) / mega_hz;
+            std.log.info("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ ms_per_frame, fps, mcpf });
+
+            last_cycles_count = end_cycles_count;
+            last_counter = end_counter;
         }
     }
 
@@ -233,6 +261,7 @@ fn resizeDIBSection(buffer: *OffscreenBuffer, width: i32, height: i32) void {
     buffer.info.bmiHeader.biCompression = win.BI_RGB;
 
     const bitsmap_size: c_ulonglong = @intCast(buffer.width * buffer.height * bytes_per_pixel);
+    // TODO(ariel): use std.mem.allocator instead if this make sense
     buffer.bits = win.VirtualAlloc(
         null,
         bitsmap_size,
@@ -311,6 +340,7 @@ fn XInputGetStateStub(dwUserIndex: xinput.DWORD, pState: *xinput.XINPUT_STATE) c
 var XInputGetState: XInputGetStateFn = XInputGetStateStub;
 
 fn loadXInput() void {
+    // TODO(ariel): try using std.DynLib instead of winapi
     // TODO(ariel): try to create a wrapper for loadLibraryA that will try to load the dll in the order of the array,
     // and return the first one that is found. else will throw, the zig way. (rn the caller will just catch and ignore)
     const versions = [_][*c]const u8{ "xinput1_4.dll", "xinput9_1_0.dll", "xinput1_3.dll" };
