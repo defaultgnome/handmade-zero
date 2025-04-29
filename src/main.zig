@@ -13,16 +13,19 @@ var global_running = false;
 var global_backbuffer: OffscreenBuffer = undefined;
 var global_secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
 
-// TODO(ariel): check how can i still use the normal main function, and not have to use winapi, so later we can have it working for linux/macos
-pub export fn main(
-    inst: std.os.windows.HINSTANCE,
-    prev: ?std.os.windows.HINSTANCE,
-    cmd_line: std.os.windows.LPWSTR,
-    cmd_show: i32,
-) callconv(.winapi) i32 {
-    _ = prev;
-    _ = cmd_line;
-    _ = cmd_show;
+pub fn main() !void {
+    switch (builtin.os.tag) {
+        .windows => {
+            try mainWindows();
+        },
+        else => {
+            @compileError("Unsupported platform");
+        },
+    }
+}
+
+pub fn mainWindows() !void {
+    const inst = std.os.windows.kernel32.GetModuleHandleW(null);
 
     loadXInput();
 
@@ -39,7 +42,7 @@ pub export fn main(
     if (win.RegisterClassA(&window_class) == 0) {
         std.log.info("Failed to register window class", .{});
         // TODO(ariel): Handle error the zig way?
-        return 1;
+        return error.FailedToRegisterWindowClass;
     }
     const window = win.CreateWindowExA(
         0,
@@ -57,7 +60,7 @@ pub export fn main(
     ) orelse {
         std.log.info("Failed to create window", .{});
         // TODO(ariel): Handle error the zig way?
-        return 1;
+        return error.FailedToCreateWindow;
     };
 
     const device_context = win.GetDC(window);
@@ -177,8 +180,6 @@ pub export fn main(
             last_counter = end_counter;
         }
     }
-
-    return 0;
 }
 
 fn mainWindowCallback(
