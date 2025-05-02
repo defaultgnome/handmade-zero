@@ -68,6 +68,14 @@ pub fn run() !void {
 
     global_running = true;
 
+    // TODO(ariel): use std.mem.allocator instead if this make sense
+    const samples: [*]i16 = @ptrCast(@alignCast(win.VirtualAlloc(
+        null,
+        sound_output.secondary_buffer_size,
+        win.MEM_RESERVE | win.MEM_COMMIT,
+        win.PAGE_READWRITE,
+    )));
+
     const qpf = std.os.windows.QueryPerformanceFrequency();
     var last_cycles_count = stdx.time.clock_cycles();
     var last_counter = std.os.windows.QueryPerformanceCounter();
@@ -142,10 +150,9 @@ pub fn run() !void {
 
                 sound_is_valid = true;
             }
-            var samples: [48000 * 2]i16 = undefined;
             var sound_buffer: platform.SoundBuffer = .{
                 .sample_rate = sound_output.sample_rate,
-                .samples = &samples,
+                .samples = samples,
                 .sample_count = bytes_to_write / sound_output.bytes_per_sample,
             };
 
