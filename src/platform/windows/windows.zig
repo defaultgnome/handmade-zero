@@ -155,7 +155,7 @@ pub fn run() !void {
                 .height = global_backbuffer.height,
                 .pitch = global_backbuffer.pitch,
             };
-            game.updateAndRender(&buffer, &sound_buffer, x_offset, y_offset);
+            game.updateAndRender(&buffer, &sound_buffer, x_offset, y_offset, sound_output.tone_hz);
 
             if (sound_is_valid) {
                 fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);

@@ -24,8 +24,8 @@ pub fn main() !void {
 // and move all the internal logic to a separate 'game' module.
 
 /// x_offset, y_offset are used for green/blue offset -- Toy example, will be removed
-pub fn updateAndRender(buffer: *OffscreenBuffer, sound_buffer: *SoundBuffer, x_offset: i32, y_offset: i32) void {
-    outputSound(sound_buffer);
+pub fn updateAndRender(buffer: *OffscreenBuffer, sound_buffer: *SoundBuffer, x_offset: i32, y_offset: i32, tone_hz: u32) void {
+    outputSound(sound_buffer, tone_hz);
     renderWeirdGradient(buffer, x_offset, y_offset);
 }
 
@@ -47,9 +47,8 @@ fn renderWeirdGradient(buffer: *OffscreenBuffer, x_offset: i32, y_offset: i32) v
 }
 
 var t_sine: f32 = 0;
-fn outputSound(sound_buffer: *SoundBuffer) void {
+fn outputSound(sound_buffer: *SoundBuffer, tone_hz: u32) void {
     const tone_volume = 0.1 * 32_768;
-    const tone_hz = 256;
     const wave_period = sound_buffer.sample_rate / tone_hz;
 
     var sample_out: [*]i16 = sound_buffer.samples;
