@@ -8,7 +8,6 @@ const dsound = @cImport(@cInclude("dsound.h"));
 
 const stdx = @import("stdx");
 
-const game = @import("../../main.zig");
 const platform = @import("../platform.zig");
 
 var global_running = false;
@@ -203,7 +202,7 @@ pub fn run() !void {
                 .height = global_backbuffer.height,
                 .pitch = global_backbuffer.pitch,
             };
-            game.updateAndRender(new_input, &buffer, &sound_buffer);
+            platform.updateAndRender(new_input, &buffer, &sound_buffer);
 
             if (sound_is_valid) {
                 fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);

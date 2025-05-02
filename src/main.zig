@@ -1,6 +1,4 @@
-//! we use, as casey says, a "Game as a Service to the OS" architecture style.
-//! this means that here we start the platform code, and each platform will call the game API in certain entry points.
-//! The Platform calls the Game, not the other way around.
+//! see platform/platform.zig for more details
 
 const std = @import("std");
 const platform = @import("platform/platform.zig");

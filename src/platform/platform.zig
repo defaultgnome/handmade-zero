@@ -1,11 +1,29 @@
 //! A.K.A. the Engine
+//!
+//! we use, as casey says, a "Game as a Service to the OS" architecture style.
+//! this means that here we start the platform code, and each platform will call the game API in certain entry points.
+//! The Platform calls the Game, not the other way around.
+//!
+//! we need main.zig to impleament the Game API
+
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const windows = @import("./windows/windows.zig");
-
 pub const log = std.log.scoped(.engine);
 
+// platforms
+pub const windows = @import("./windows/windows.zig");
+
+// TODO(ariel): hypotetically if this was a library, we would not need to import main.zig here
+// maybe build.zig should define a "app" module that will be used here?
+const game = @import("../main.zig");
+
+// ---- here lie the function that the platform will call ----
+pub const updateAndRender = game.updateAndRender;
+
+// ---- need to be called by the main.zig ----
+
+/// need to be called by the main.zig
 pub fn run() !void {
     switch (builtin.os.tag) {
         .windows => {
@@ -16,6 +34,8 @@ pub fn run() !void {
         },
     }
 }
+
+// ---- objects that the platform will expose to the game ----
 
 /// this is the buffer that the game will draw to
 pub const OffscreenBuffer = struct {
