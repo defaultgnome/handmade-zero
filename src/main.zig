@@ -3,8 +3,10 @@
 //! The Platform calls the Game, not the other way around.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const platform = @import("platform/platform.zig");
+
+const OffscreenBuffer = platform.OffscreenBuffer;
+const SoundBuffer = platform.SoundBuffer;
 
 pub const std_options: std.Options = .{
     .log_level = .info,
@@ -21,18 +23,13 @@ pub fn main() !void {
 // TODO: probably we want to keep here only the handful public Game API the platform will use
 // and move all the internal logic to a separate 'game' module.
 
-pub const OffscreenBuffer = struct {
-    bits: ?*anyopaque = null,
-    width: i32,
-    height: i32,
-    pitch: usize,
-};
-
 /// x_offset, y_offset are used for green/blue offset -- Toy example, will be removed
-pub fn updateAndRender(buffer: *OffscreenBuffer, x_offset: i32, y_offset: i32) void {
+pub fn updateAndRender(buffer: *OffscreenBuffer, sound_buffer: *SoundBuffer, x_offset: i32, y_offset: i32) void {
+    outputSound(sound_buffer);
     renderWeirdGradient(buffer, x_offset, y_offset);
 }
 
+// ---- Internal API ----
 fn renderWeirdGradient(buffer: *OffscreenBuffer, x_offset: i32, y_offset: i32) void {
     const h = @as(usize, @intCast(buffer.height));
     const w = @as(usize, @intCast(buffer.width));
@@ -46,5 +43,24 @@ fn renderWeirdGradient(buffer: *OffscreenBuffer, x_offset: i32, y_offset: i32) v
             pixel += 1;
         }
         row += buffer.pitch;
+    }
+}
+
+var t_sine: f32 = 0;
+fn outputSound(sound_buffer: *SoundBuffer) void {
+    const tone_volume = 0.1 * 32_768;
+    const tone_hz = 256;
+    const wave_period = sound_buffer.sample_rate / tone_hz;
+
+    var sample_out: [*]i16 = sound_buffer.samples;
+
+    for (0..sound_buffer.sample_count) |_| {
+        const sine_value: f32 = @sin(t_sine);
+        const sample_value: i16 = @intFromFloat(sine_value * tone_volume);
+        sample_out[0] = sample_value;
+        sample_out[1] = sample_value;
+        sample_out += 2;
+
+        t_sine += (std.math.tau * 1) / @as(f32, @floatFromInt(wave_period));
     }
 }

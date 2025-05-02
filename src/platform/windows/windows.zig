@@ -9,6 +9,7 @@ const dsound = @cImport(@cInclude("dsound.h"));
 const stdx = @import("stdx");
 
 const game = @import("../../main.zig");
+const platform = @import("../platform.zig");
 
 var global_running = false;
 var global_backbuffer: OffscreenBuffer = undefined;
@@ -62,7 +63,7 @@ pub fn run() !void {
     // Sound Test
     var sound_output = SoundOutput.init();
     loadDSound(window, sound_output.sample_rate, sound_output.secondary_buffer_size);
-    fillSoundBuffer(&sound_output, 0, sound_output.latency_sample_count * sound_output.bytes_per_sample);
+    clearSoundBuffer(&sound_output);
     _ = global_secondary_buffer.*.lpVtbl.*.Play.?(global_secondary_buffer, 0, 0, dsound.DSBPLAY_LOOPING);
 
     global_running = true;
@@ -123,22 +124,15 @@ pub fn run() !void {
         }
 
         {
-            var buffer: game.OffscreenBuffer = .{
-                .bits = global_backbuffer.bits,
-                .width = global_backbuffer.width,
-                .height = global_backbuffer.height,
-                .pitch = global_backbuffer.pitch,
-            };
-            game.updateAndRender(&buffer, x_offset, y_offset);
-        }
-
-        {
+            var byte_to_lock: win.DWORD = undefined;
+            var target_cursor: win.DWORD = undefined;
+            var bytes_to_write: win.DWORD = undefined;
             var play_cursor: win.DWORD = undefined;
             var write_cursor: win.DWORD = undefined;
+            var sound_is_valid = false;
             if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &play_cursor, &write_cursor))) {
-                const byte_to_lock: win.DWORD = (sound_output.running_sample_index * sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
-                const target_cursor = (play_cursor + (sound_output.latency_sample_count * sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size;
-                var bytes_to_write: win.DWORD = undefined;
+                byte_to_lock = (sound_output.running_sample_index * sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
+                target_cursor = (play_cursor + (sound_output.latency_sample_count * sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size;
                 if (byte_to_lock > target_cursor) {
                     bytes_to_write = sound_output.secondary_buffer_size - byte_to_lock;
                     bytes_to_write += target_cursor;
@@ -146,7 +140,25 @@ pub fn run() !void {
                     bytes_to_write = target_cursor - byte_to_lock;
                 }
 
-                fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write);
+                sound_is_valid = true;
+            }
+            var samples: [48000 * 2]i16 = undefined;
+            var sound_buffer: platform.SoundBuffer = .{
+                .sample_rate = sound_output.sample_rate,
+                .samples = &samples,
+                .sample_count = bytes_to_write / sound_output.bytes_per_sample,
+            };
+
+            var buffer: platform.OffscreenBuffer = .{
+                .bits = global_backbuffer.bits,
+                .width = global_backbuffer.width,
+                .height = global_backbuffer.height,
+                .pitch = global_backbuffer.pitch,
+            };
+            game.updateAndRender(&buffer, &sound_buffer, x_offset, y_offset);
+
+            if (sound_is_valid) {
+                fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
             }
 
             {
@@ -454,7 +466,7 @@ const SoundOutput = struct {
     }
 };
 
-fn fillSoundBuffer(sound_output: *SoundOutput, byte_to_lock: win.DWORD, bytes_to_write: win.DWORD) void {
+fn fillSoundBuffer(sound_output: *SoundOutput, byte_to_lock: win.DWORD, bytes_to_write: win.DWORD, source_buffer: *platform.SoundBuffer) void {
     var region1: win.LPVOID = undefined;
     var region2: win.LPVOID = undefined;
     var region1_size: win.DWORD = undefined;
@@ -470,33 +482,61 @@ fn fillSoundBuffer(sound_output: *SoundOutput, byte_to_lock: win.DWORD, bytes_to
         &region2_size,
         0,
     ))) {
-        var sample_out: [*]i16 = @ptrCast(@alignCast(region1));
+        var dest_sample: [*]i16 = @ptrCast(@alignCast(region1));
+        var source_sample: [*]i16 = source_buffer.samples;
         const region1_sample_count = region1_size / sound_output.bytes_per_sample;
         for (0..region1_sample_count) |_| {
-            const sine_value: f32 = @sin(sound_output.t_sine);
-            const sample_value: i16 = @intFromFloat(sine_value * sound_output.tone_volume);
-            sample_out[0] = sample_value;
-            sample_out[1] = sample_value;
-            sample_out += 2;
-
-            sound_output.t_sine += (std.math.tau * 1) / @as(f32, @floatFromInt(sound_output.wave_period));
+            dest_sample[0] = source_sample[0];
+            dest_sample[1] = source_sample[1];
+            dest_sample += 2;
+            source_sample += 2;
             sound_output.running_sample_index += 1;
         }
 
         if (region2 != null) {
-            sample_out = @ptrCast(@alignCast(region2));
+            dest_sample = @ptrCast(@alignCast(region2));
             const region2_sample_count = region2_size / sound_output.bytes_per_sample;
             for (0..region2_sample_count) |_| {
-                const sine_value: f32 = @sin(sound_output.t_sine);
-                const sample_value: i16 = @intFromFloat(sine_value * sound_output.tone_volume);
-                sample_out[0] = sample_value;
-                sample_out[1] = sample_value;
-                sample_out += 2;
-                sound_output.t_sine += (std.math.tau * 1) / @as(f32, @floatFromInt(sound_output.wave_period));
+                dest_sample[0] = source_sample[0];
+                dest_sample[1] = source_sample[1];
+                dest_sample += 2;
+                source_sample += 2;
                 sound_output.running_sample_index += 1;
             }
         }
 
+        _ = global_secondary_buffer.*.lpVtbl.*.Unlock.?(global_secondary_buffer, region1, region1_size, region2, region2_size);
+    }
+}
+
+fn clearSoundBuffer(sound_output: *SoundOutput) void {
+    var region1: win.LPVOID = undefined;
+    var region2: win.LPVOID = undefined;
+    var region1_size: win.DWORD = undefined;
+    var region2_size: win.DWORD = undefined;
+
+    if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.Lock.?(
+        global_secondary_buffer,
+        0,
+        sound_output.secondary_buffer_size,
+        &region1,
+        &region1_size,
+        &region2,
+        &region2_size,
+        0,
+    ))) {
+        var dest_sample: [*]u8 = @ptrCast(@alignCast(region1));
+        for (0..region1_size) |_| {
+            dest_sample[0] = 0;
+            dest_sample += 1;
+        }
+        if (region2 != null) {
+            dest_sample = @ptrCast(@alignCast(region2));
+            for (0..region2_size) |_| {
+                dest_sample[0] = 0;
+                dest_sample += 1;
+            }
+        }
         _ = global_secondary_buffer.*.lpVtbl.*.Unlock.?(global_secondary_buffer, region1, region1_size, region2, region2_size);
     }
 }

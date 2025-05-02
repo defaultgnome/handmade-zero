@@ -13,3 +13,16 @@ pub fn run() !void {
         },
     }
 }
+
+pub const OffscreenBuffer = struct {
+    bits: ?*anyopaque = null,
+    width: i32,
+    height: i32,
+    pitch: usize,
+};
+
+pub const SoundBuffer = struct {
+    sample_rate: u32,
+    samples: [*]i16,
+    sample_count: usize,
+};
