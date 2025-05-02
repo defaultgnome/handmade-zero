@@ -132,11 +132,11 @@ pub fn run() !void {
         }
 
         {
-            var byte_to_lock: win.DWORD = undefined;
-            var target_cursor: win.DWORD = undefined;
-            var bytes_to_write: win.DWORD = undefined;
-            var play_cursor: win.DWORD = undefined;
-            var write_cursor: win.DWORD = undefined;
+            var byte_to_lock: win.DWORD = 0;
+            var target_cursor: win.DWORD = 0;
+            var bytes_to_write: win.DWORD = 0;
+            var play_cursor: win.DWORD = 0;
+            var write_cursor: win.DWORD = 0;
             var sound_is_valid = false;
             if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &play_cursor, &write_cursor))) {
                 byte_to_lock = (sound_output.running_sample_index * sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
