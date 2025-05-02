@@ -49,6 +49,7 @@ pub const Input = struct {
         end_x: f32,
         end_y: f32,
 
+        // TODO(ariel): is it better to have c union here?
         /// up, down, left, right, left_shoulder, right_shoulder
         buttons: [6]ButtonState,
 
