@@ -10,6 +10,10 @@ const SoundBuffer = platform.SoundBuffer;
 
 pub const std_options: std.Options = .{
     .log_level = .info,
+    // TODO(ariel): move this part of the enigne to platform/engine, and merge here
+    .log_scope_levels = &[_]std.log.ScopeLevel{
+        .{ .scope = .engine, .level = .info },
+    },
 };
 
 pub fn main() !void {
@@ -23,10 +27,25 @@ pub fn main() !void {
 // TODO: probably we want to keep here only the handful public Game API the platform will use
 // and move all the internal logic to a separate 'game' module.
 
-/// x_offset, y_offset are used for green/blue offset -- Toy example, will be removed
-pub fn updateAndRender(buffer: *OffscreenBuffer, sound_buffer: *SoundBuffer, x_offset: i32, y_offset: i32, tone_hz: u32) void {
-    outputSound(sound_buffer, tone_hz);
-    renderWeirdGradient(buffer, x_offset, y_offset);
+///  variables for Toy example, will be removed
+var global_blue_offset: i32 = 0;
+var global_green_offset: i32 = 0;
+var global_tone_hz: i32 = 256;
+
+pub fn updateAndRender(input: *platform.Input, buffer: *OffscreenBuffer, sound_buffer: *SoundBuffer) void {
+    var input0 = &input.controllers[0];
+    if (input0.is_analog) {
+        // TODO(casey): will need to move everything to floats
+        global_blue_offset += @intFromFloat(4 * input0.end_x);
+        global_tone_hz = 256 + @as(i32, @intFromFloat(128 * input0.end_y));
+    } else {}
+
+    if (input0.getButton(.down).ended_down) {
+        global_green_offset += 1;
+    }
+
+    outputSound(sound_buffer, global_tone_hz);
+    renderWeirdGradient(buffer, global_blue_offset, global_green_offset);
 }
 
 // ---- Internal API ----
@@ -47,9 +66,9 @@ fn renderWeirdGradient(buffer: *OffscreenBuffer, x_offset: i32, y_offset: i32) v
 }
 
 var t_sine: f32 = 0;
-fn outputSound(sound_buffer: *SoundBuffer, tone_hz: u32) void {
+fn outputSound(sound_buffer: *SoundBuffer, tone_hz: i32) void {
     const tone_volume = 0.1 * 32_768;
-    const wave_period = sound_buffer.sample_rate / tone_hz;
+    const wave_period: f32 = @as(f32, @floatFromInt(sound_buffer.sample_rate)) / @as(f32, @floatFromInt(tone_hz));
 
     var sample_out: [*]i16 = sound_buffer.samples;
 
@@ -60,6 +79,6 @@ fn outputSound(sound_buffer: *SoundBuffer, tone_hz: u32) void {
         sample_out[1] = sample_value;
         sample_out += 2;
 
-        t_sine += (std.math.tau * 1) / @as(f32, @floatFromInt(wave_period));
+        t_sine += (std.math.tau * 1) / wave_period;
     }
 }

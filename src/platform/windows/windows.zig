@@ -56,10 +56,6 @@ pub fn run() !void {
 
     const device_context = win.GetDC(window);
 
-    // Graphics Test
-    var x_offset: i32 = 0;
-    var y_offset: i32 = 0;
-
     // Sound Test
     var sound_output = SoundOutput.init();
     loadDSound(window, sound_output.sample_rate, sound_output.secondary_buffer_size);
@@ -76,12 +72,18 @@ pub fn run() !void {
         win.PAGE_READWRITE,
     )));
 
+    // TODO(ariel): why using an array? and not just two variables?
+    var input = [2]platform.Input{ undefined, undefined };
+    var old_input = &input[0];
+    var new_input = &input[1];
+
     const qpf = std.os.windows.QueryPerformanceFrequency();
     var last_cycles_count = stdx.time.clock_cycles();
     var last_counter = std.os.windows.QueryPerformanceCounter();
 
     while (global_running) {
         var msg: win.MSG = undefined;
+
         while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
             if (msg.message == win.WM_QUIT) {
                 global_running = false;
@@ -90,7 +92,10 @@ pub fn run() !void {
             _ = win.DispatchMessageA(&msg);
         }
 
-        for (0..xinput.XUSER_MAX_COUNT) |controller_index| {
+        const max_controllers: usize = @min(xinput.XUSER_MAX_COUNT, new_input.controllers.len);
+        for (0..max_controllers) |controller_index| {
+            var old_controller = &old_input.controllers[controller_index];
+            var new_controller = &new_input.controllers[controller_index];
             var controller_state: xinput.XINPUT_STATE = undefined;
             if (XInputGetState(@intCast(controller_index), &controller_state) == win.ERROR_SUCCESS) {
                 // Controller is connected
@@ -99,33 +104,69 @@ pub fn run() !void {
                 // const down = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_DOWN) != 0;
                 // const left = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_LEFT) != 0;
                 // const right = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_RIGHT) != 0;
+
+                new_controller.is_analog = true;
+
+                const stick_left_x: f32 = val: {
+                    const f: f32 = @floatFromInt(pad.sThumbLX);
+                    const div: f32 = if (f < 0) 32_768 else 32_767;
+                    break :val f / div;
+                };
+                new_controller.start_x = old_controller.end_x;
+                new_controller.end_x = stick_left_x;
+                new_controller.min_x = stick_left_x;
+                new_controller.max_x = stick_left_x;
+
+                const stick_left_y: f32 = val: {
+                    const f: f32 = @floatFromInt(pad.sThumbLY);
+                    const div: f32 = if (f < 0) 32_768 else 32_767;
+                    break :val f / div;
+                };
+                new_controller.start_y = old_controller.end_y;
+                new_controller.end_y = stick_left_y;
+                new_controller.min_y = stick_left_y;
+                new_controller.max_y = stick_left_y;
+
+                // TODO(casey): deadzone processing
+                // XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE
+                // XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE
+
+                const buttons = [_]struct { xinput.DWORD, platform.Input.Controller.ButtonLabel }{
+                    .{ xinput.XINPUT_GAMEPAD_A, .down },
+                    .{ xinput.XINPUT_GAMEPAD_B, .right },
+                    .{ xinput.XINPUT_GAMEPAD_X, .left },
+                    .{ xinput.XINPUT_GAMEPAD_Y, .up },
+                    .{ xinput.XINPUT_GAMEPAD_LEFT_SHOULDER, .left_shoulder },
+                    .{ xinput.XINPUT_GAMEPAD_RIGHT_SHOULDER, .right_shoulder },
+                };
+                inline for (buttons) |button| {
+                    processXInputDigitalButton(
+                        pad.wButtons,
+                        old_controller.getButton(button[1]),
+                        button[0],
+                        new_controller.getButton(button[1]),
+                    );
+                }
                 // const start = (pad.wButtons & xinput.XINPUT_GAMEPAD_START) != 0;
                 // const back = (pad.wButtons & xinput.XINPUT_GAMEPAD_BACK) != 0;
-                const left_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_LEFT_SHOULDER) != 0;
-                // const right_shoulder = (pad.wButtons & xinput.XINPUT_GAMEPAD_RIGHT_SHOULDER) != 0;
-                const a_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_A) != 0;
-                const b_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_B) != 0;
-                const x_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_X) != 0;
-                const y_button = (pad.wButtons & xinput.XINPUT_GAMEPAD_Y) != 0;
-                const stick_left_x = pad.sThumbLX;
-                const stick_left_y = pad.sThumbLY;
 
-                y_offset += @divTrunc(@as(i32, @intCast(stick_left_y)), 4096);
-                x_offset += @divTrunc(@as(i32, @intCast(stick_left_x)), 4096);
+                // TODO(ariel): delete this
+                // y_offset += @divTrunc(@as(i32, @intCast(stick_left_y)), 4096);
+                // x_offset += @divTrunc(@as(i32, @intCast(stick_left_x)), 4096);
 
                 // pentatonic scale
-                if (left_shoulder) {
-                    const stick_tone_offset: i32 = @intFromFloat(256 * @as(f32, @floatFromInt(stick_left_y >> 12)));
-                    sound_output.setTone(@intCast(@max(128, 512 + stick_tone_offset)));
-                } else if (a_button) {
-                    sound_output.setTone(512);
-                } else if (b_button) {
-                    sound_output.setTone(640);
-                } else if (x_button) {
-                    sound_output.setTone(768);
-                } else if (y_button) {
-                    sound_output.setTone(896);
-                }
+                // if (left_shoulder) {
+                //     const stick_tone_offset: i32 = @intFromFloat(256 * @as(f32, @floatFromInt(stick_left_y >> 12)));
+                //     sound_output.setTone(@intCast(@max(128, 512 + stick_tone_offset)));
+                // } else if (a_button) {
+                //     sound_output.setTone(512);
+                // } else if (b_button) {
+                //     sound_output.setTone(640);
+                // } else if (x_button) {
+                //     sound_output.setTone(768);
+                // } else if (y_button) {
+                //     sound_output.setTone(896);
+                // }
             } else {
                 // Controller is not connected
             }
@@ -162,7 +203,7 @@ pub fn run() !void {
                 .height = global_backbuffer.height,
                 .pitch = global_backbuffer.pitch,
             };
-            game.updateAndRender(&buffer, &sound_buffer, x_offset, y_offset, sound_output.tone_hz);
+            game.updateAndRender(new_input, &buffer, &sound_buffer);
 
             if (sound_is_valid) {
                 fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
@@ -191,10 +232,15 @@ pub fn run() !void {
             const fps: f64 = @as(f64, @floatFromInt(qpf)) / @as(f64, @floatFromInt(counter_elapsed));
             const mega_hz = 1_000 * 1_000;
             const mcpf: f64 = @as(f64, @floatFromInt(cycles_elapsed)) / mega_hz;
-            std.log.info("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ ms_per_frame, fps, mcpf });
+            platform.log.debug("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ ms_per_frame, fps, mcpf });
 
             last_cycles_count = end_cycles_count;
             last_counter = end_counter;
+        }
+
+        {
+            // TODO(ariel): should we defer this block from the top?
+            std.mem.swap(platform.Input, new_input, old_input);
         }
     }
 }
@@ -436,40 +482,22 @@ const SoundOutput = struct {
     const Self = @This();
 
     sample_rate: u32,
-    tone_hz: u32,
-    tone_volume: f32,
     running_sample_index: u32,
-    wave_period: u32,
     bytes_per_sample: u32,
     secondary_buffer_size: u32,
-    t_sine: f32,
     latency_sample_count: u32,
 
     pub fn init() Self {
-        var output = Self{
+        var self = Self{
             .sample_rate = 48_000,
-            .tone_hz = 256,
-            .tone_volume = 0.1 * 32_000,
             .running_sample_index = 0,
-            .wave_period = undefined,
             .bytes_per_sample = @sizeOf(u16) * 2,
             .secondary_buffer_size = undefined,
-            .t_sine = 0,
             .latency_sample_count = undefined,
         };
-        output.secondary_buffer_size = output.sample_rate * output.bytes_per_sample;
-        output.latency_sample_count = output.sample_rate / 15;
-        output.calculateWavePeriod();
-        return output;
-    }
-
-    pub fn setTone(self: *Self, tone_hz: u32) void {
-        self.tone_hz = tone_hz;
-        self.calculateWavePeriod();
-    }
-
-    fn calculateWavePeriod(self: *Self) void {
-        self.wave_period = self.sample_rate / self.tone_hz;
+        self.secondary_buffer_size = self.sample_rate * self.bytes_per_sample;
+        self.latency_sample_count = self.sample_rate / 15;
+        return self;
     }
 };
 
@@ -546,4 +574,16 @@ fn clearSoundBuffer(sound_output: *SoundOutput) void {
         }
         _ = global_secondary_buffer.*.lpVtbl.*.Unlock.?(global_secondary_buffer, region1, region1_size, region2, region2_size);
     }
+}
+
+// === Input ===
+
+fn processXInputDigitalButton(
+    x_input_button_state: xinput.DWORD,
+    old_state: *platform.Input.Controller.ButtonState,
+    button_bit: xinput.DWORD,
+    new_state: *platform.Input.Controller.ButtonState,
+) void {
+    new_state.ended_down = (x_input_button_state & button_bit) == button_bit;
+    new_state.half_transition_count = if (old_state.ended_down != new_state.ended_down) 1 else 0;
 }
