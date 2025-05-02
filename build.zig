@@ -4,6 +4,17 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Expose to build command
+    const developer_mode = b.option(
+        bool,
+        "developer_mode",
+        "Enable developer mode features. Set to true on Debug builds.",
+    ) orelse (optimize == .Debug);
+
+    // create options to be passed to modules
+    const options = b.addOptions();
+    options.addOption(bool, "developer_mode", developer_mode);
+
     const stdx_mod = b.createModule(.{
         .root_source_file = b.path("src/libs/stdx/stdx.zig"),
         .target = target,
@@ -15,7 +26,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
+    exe_mod.addOptions("options", options);
     exe_mod.addImport("stdx", stdx_mod);
 
     const stdx_lib = b.addLibrary(.{

@@ -1,6 +1,7 @@
 //! TODO(ariel): move this to a separate file, per API for windows
 const std = @import("std");
 const builtin = @import("builtin");
+const options = @import("options");
 
 const win = @cImport(@cInclude("windows.h"));
 const xinput = @cImport(@cInclude("xinput.h"));
@@ -15,6 +16,10 @@ var global_backbuffer: OffscreenBuffer = undefined;
 var global_secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
 
 pub fn run() !void {
+    if (options.developer_mode) {
+        platform.log.info("Developer mode enabled", .{});
+    }
+
     const inst = std.os.windows.kernel32.GetModuleHandleW(null);
 
     loadXInput();
@@ -71,25 +76,29 @@ pub fn run() !void {
         win.PAGE_READWRITE,
     ) orelse unreachable));
 
+    const base_adderss: win.LPVOID = val: {
+        if (options.developer_mode) {
+            break :val @ptrFromInt(stdx.mem.terabyte_in_bytes * 2);
+        } else {
+            break :val null;
+        }
+    };
+
     var memory = platform.Memory{
         .permanent_storage_size = stdx.mem.megabyte_in_bytes * 64,
         .permanent_storage = undefined,
         .transient_storage_size = stdx.mem.gigabyte_in_bytes * 4,
         .transient_storage = undefined,
     };
+    const total_memory_size = memory.permanent_storage_size + memory.transient_storage_size;
     memory.permanent_storage = win.VirtualAlloc(
-        null,
-        memory.permanent_storage_size,
+        base_adderss,
+        total_memory_size,
         win.MEM_RESERVE | win.MEM_COMMIT,
         win.PAGE_READWRITE,
     ) orelse unreachable;
 
-    memory.transient_storage = win.VirtualAlloc(
-        null,
-        memory.transient_storage_size,
-        win.MEM_RESERVE | win.MEM_COMMIT,
-        win.PAGE_READWRITE,
-    ) orelse unreachable;
+    memory.transient_storage = @ptrFromInt(@intFromPtr(memory.permanent_storage) + memory.permanent_storage_size);
 
     // TODO(ariel): why using an array? and not just two variables?
     var input = [2]platform.Input{ undefined, undefined };

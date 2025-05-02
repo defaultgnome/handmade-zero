@@ -29,6 +29,8 @@ const GameState = struct {
 // and move all the internal logic to a separate 'game' module.
 
 pub fn updateAndRender(memory: *platform.Memory, input: *platform.Input, buffer: *platform.OffscreenBuffer, sound_buffer: *platform.SoundBuffer) void {
+    std.debug.assert(@sizeOf(GameState) <= memory.permanent_storage_size);
+
     var game_state: *GameState = @alignCast(@ptrCast(memory.permanent_storage));
     if (!memory.is_initialized) {
         game_state.tone_hz = 256;
