@@ -30,7 +30,7 @@ pub fn run() !void {
     };
 
     if (win.RegisterClassA(&window_class) == 0) {
-        std.log.info("Failed to register window class", .{});
+        platform.log.err("Failed to register window class", .{});
         // TODO(ariel): Handle error the zig way?
         return error.FailedToRegisterWindowClass;
     }
@@ -48,7 +48,7 @@ pub fn run() !void {
         @constCast(@ptrCast(&inst)),
         null,
     ) orelse {
-        std.log.info("Failed to create window", .{});
+        platform.log.err("Failed to create window", .{});
         // TODO(ariel): Handle error the zig way?
         return error.FailedToCreateWindow;
     };
@@ -69,7 +69,27 @@ pub fn run() !void {
         sound_output.secondary_buffer_size,
         win.MEM_RESERVE | win.MEM_COMMIT,
         win.PAGE_READWRITE,
-    )));
+    ) orelse unreachable));
+
+    var memory = platform.Memory{
+        .permanent_storage_size = stdx.mem.megabyte_in_bytes * 64,
+        .permanent_storage = undefined,
+        .transient_storage_size = stdx.mem.gigabyte_in_bytes * 4,
+        .transient_storage = undefined,
+    };
+    memory.permanent_storage = win.VirtualAlloc(
+        null,
+        memory.permanent_storage_size,
+        win.MEM_RESERVE | win.MEM_COMMIT,
+        win.PAGE_READWRITE,
+    ) orelse unreachable;
+
+    memory.transient_storage = win.VirtualAlloc(
+        null,
+        memory.transient_storage_size,
+        win.MEM_RESERVE | win.MEM_COMMIT,
+        win.PAGE_READWRITE,
+    ) orelse unreachable;
 
     // TODO(ariel): why using an array? and not just two variables?
     var input = [2]platform.Input{ undefined, undefined };
@@ -202,7 +222,7 @@ pub fn run() !void {
                 .height = global_backbuffer.height,
                 .pitch = global_backbuffer.pitch,
             };
-            platform.updateAndRender(new_input, &buffer, &sound_buffer);
+            platform.updateAndRender(&memory, new_input, &buffer, &sound_buffer);
 
             if (sound_is_valid) {
                 fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
@@ -224,15 +244,17 @@ pub fn run() !void {
 
             const end_counter = std.os.windows.QueryPerformanceCounter();
 
-            const cycles_elapsed = end_cycles_count - last_cycles_count;
-            // TODO(ariel): use `std.time.Instant.since`
-            const counter_elapsed = end_counter - last_counter;
-            const ms_per_frame: f64 = @as(f64, @floatFromInt(1000 * counter_elapsed)) / @as(f64, @floatFromInt(qpf));
-            const fps: f64 = @as(f64, @floatFromInt(qpf)) / @as(f64, @floatFromInt(counter_elapsed));
-            const mega_hz = 1_000 * 1_000;
-            const mcpf: f64 = @as(f64, @floatFromInt(cycles_elapsed)) / mega_hz;
-            platform.log.debug("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ ms_per_frame, fps, mcpf });
-
+            // TODO(ariel): remove this / or use less spammy log
+            if (false) {
+                const cycles_elapsed = end_cycles_count - last_cycles_count;
+                // TODO(ariel): use `std.time.Instant.since`
+                const counter_elapsed = end_counter - last_counter;
+                const ms_per_frame: f64 = @as(f64, @floatFromInt(1000 * counter_elapsed)) / @as(f64, @floatFromInt(qpf));
+                const fps: f64 = @as(f64, @floatFromInt(qpf)) / @as(f64, @floatFromInt(counter_elapsed));
+                const mega_hz = 1_000 * 1_000;
+                const mcpf: f64 = @as(f64, @floatFromInt(cycles_elapsed)) / mega_hz;
+                platform.log.debug("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ ms_per_frame, fps, mcpf });
+            }
             last_cycles_count = end_cycles_count;
             last_counter = end_counter;
         }
@@ -260,7 +282,7 @@ fn mainWindowCallback(
             global_running = false;
         },
         win.WM_ACTIVATEAPP => {
-            std.log.info("WM_ACTIVATEAPP", .{});
+            platform.log.debug("WM_ACTIVATEAPP", .{});
         },
         win.WM_SYSKEYDOWN, win.WM_SYSKEYUP, win.WM_KEYDOWN, win.WM_KEYUP => {
             const vk_code = wparam;
@@ -402,7 +424,7 @@ fn loadXInput() void {
         }
     }
     if (xinput_library == null) {
-        std.log.info("Failed to load xinput.dll", .{});
+        platform.log.err("Failed to load xinput.dll", .{});
         return;
     }
     XInputGetState = @ptrCast(win.GetProcAddress(xinput_library, "XInputGetState"));
@@ -419,7 +441,7 @@ const DirectSoundCreateFn = *const fn (
 fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
     const dsound_lib = win.LoadLibraryA("dsound.dll");
     if (dsound_lib == null) {
-        std.log.info("Failed to load dsound.dll", .{});
+        platform.log.err("Failed to load dsound.dll", .{});
         return;
     }
     const DirectSoundCreate: ?DirectSoundCreateFn = @ptrCast(win.GetProcAddress(dsound_lib, "DirectSoundCreate"));
@@ -442,15 +464,15 @@ fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
                 var primary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
                 if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &primary_buffer, null))) {
                     if (dsound.SUCCEEDED(primary_buffer.*.lpVtbl.*.SetFormat.?(primary_buffer, &wave_format))) {
-                        std.log.info("Primary buffer format set", .{});
+                        platform.log.debug("Primary buffer format set", .{});
                     } else {
-                        std.log.info("Failed to set primary buffer format", .{});
+                        platform.log.err("Failed to set primary buffer format", .{});
                     }
                 } else {
-                    std.log.info("Failed to create primary buffer", .{});
+                    platform.log.err("Failed to create primary buffer", .{});
                 }
             } else {
-                std.log.info("Failed to set cooperative level", .{});
+                platform.log.err("Failed to set cooperative level", .{});
             }
 
             var buffer_desc: dsound.DSBUFFERDESC = std.mem.zeroes(dsound.DSBUFFERDESC);
@@ -459,12 +481,12 @@ fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
             buffer_desc.dwBufferBytes = buffer_size;
             buffer_desc.lpwfxFormat = &wave_format;
             if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &global_secondary_buffer, null))) {
-                std.log.info("Secondary buffer created", .{});
+                platform.log.debug("Secondary buffer created", .{});
             } else {
-                std.log.info("Failed to create secondary buffer", .{});
+                platform.log.err("Failed to create secondary buffer", .{});
             }
         } else {
-            std.log.info("DirectSoundCreate failed", .{});
+            platform.log.err("DirectSoundCreate failed", .{});
         }
     }
 }

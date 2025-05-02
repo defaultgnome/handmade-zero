@@ -98,3 +98,13 @@ pub const Input = struct {
         }
     };
 };
+
+pub const Memory = struct {
+    is_initialized: bool = false,
+    permanent_storage_size: u64,
+    /// required to be cleared to zero at startup
+    permanent_storage: *anyopaque,
+    transient_storage_size: u64,
+    /// required to be cleared to zero at startup
+    transient_storage: *anyopaque,
+};

@@ -3,14 +3,11 @@
 const std = @import("std");
 const platform = @import("platform/platform.zig");
 
-const OffscreenBuffer = platform.OffscreenBuffer;
-const SoundBuffer = platform.SoundBuffer;
-
 pub const std_options: std.Options = .{
-    .log_level = .info,
+    .log_level = .debug,
     // TODO(ariel): move this part of the enigne to platform/engine, and merge here
     .log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .engine, .level = .info },
+        .{ .scope = .engine, .level = .debug },
     },
 };
 
@@ -22,32 +19,39 @@ pub fn main() !void {
 // === GAME API ===
 // ================
 
+const GameState = struct {
+    blue_offset: i32,
+    green_offset: i32,
+    tone_hz: i32,
+};
+
 // TODO: probably we want to keep here only the handful public Game API the platform will use
 // and move all the internal logic to a separate 'game' module.
 
-///  variables for Toy example, will be removed
-var global_blue_offset: i32 = 0;
-var global_green_offset: i32 = 0;
-var global_tone_hz: i32 = 256;
+pub fn updateAndRender(memory: *platform.Memory, input: *platform.Input, buffer: *platform.OffscreenBuffer, sound_buffer: *platform.SoundBuffer) void {
+    var game_state: *GameState = @alignCast(@ptrCast(memory.permanent_storage));
+    if (!memory.is_initialized) {
+        game_state.tone_hz = 256;
+        memory.is_initialized = true;
+    }
 
-pub fn updateAndRender(input: *platform.Input, buffer: *OffscreenBuffer, sound_buffer: *SoundBuffer) void {
     var input0 = &input.controllers[0];
     if (input0.is_analog) {
         // TODO(casey): will need to move everything to floats
-        global_blue_offset += @intFromFloat(4 * input0.end_x);
-        global_tone_hz = 256 + @as(i32, @intFromFloat(128 * input0.end_y));
+        game_state.blue_offset += @intFromFloat(4 * input0.end_x);
+        game_state.tone_hz = 256 + @as(i32, @intFromFloat(128 * input0.end_y));
     } else {}
 
     if (input0.getButton(.down).ended_down) {
-        global_green_offset += 1;
+        game_state.green_offset += 1;
     }
 
-    outputSound(sound_buffer, global_tone_hz);
-    renderWeirdGradient(buffer, global_blue_offset, global_green_offset);
+    outputSound(sound_buffer, game_state.tone_hz);
+    renderWeirdGradient(buffer, game_state.blue_offset, game_state.green_offset);
 }
 
 // ---- Internal API ----
-fn renderWeirdGradient(buffer: *OffscreenBuffer, x_offset: i32, y_offset: i32) void {
+fn renderWeirdGradient(buffer: *platform.OffscreenBuffer, x_offset: i32, y_offset: i32) void {
     const h = @as(usize, @intCast(buffer.height));
     const w = @as(usize, @intCast(buffer.width));
     var row: [*]u8 = @ptrCast(buffer.bits);
@@ -64,7 +68,7 @@ fn renderWeirdGradient(buffer: *OffscreenBuffer, x_offset: i32, y_offset: i32) v
 }
 
 var t_sine: f32 = 0;
-fn outputSound(sound_buffer: *SoundBuffer, tone_hz: i32) void {
+fn outputSound(sound_buffer: *platform.SoundBuffer, tone_hz: i32) void {
     const tone_volume = 0.1 * 32_768;
     const wave_period: f32 = @as(f32, @floatFromInt(sound_buffer.sample_rate)) / @as(f32, @floatFromInt(tone_hz));
 
