@@ -33,6 +33,11 @@ pub fn updateAndRender(memory: *platform.Memory, input: *platform.Input, buffer:
 
     var game_state: *GameState = @alignCast(@ptrCast(memory.permanent_storage));
     if (!memory.is_initialized) {
+        const file = platform.debug.readEntireFile("test.txt");
+        if (file.contents != null) {
+            _ = platform.debug.writeEntireFile("test2.txt", file.contents.?, file.size);
+            platform.debug.freeFileMemory(file.contents.?);
+        }
         game_state.tone_hz = 256;
         memory.is_initialized = true;
     }

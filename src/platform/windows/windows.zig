@@ -11,6 +11,8 @@ const stdx = @import("stdx");
 
 const platform = @import("../platform.zig");
 
+const assert = std.debug.assert;
+
 var global_running = false;
 var global_backbuffer: OffscreenBuffer = undefined;
 var global_secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
@@ -613,3 +615,114 @@ fn processXInputDigitalButton(
     new_state.ended_down = (x_input_button_state & button_bit) == button_bit;
     new_state.half_transition_count = if (old_state.ended_down != new_state.ended_down) 1 else 0;
 }
+
+/// namespace for debug only functions
+/// asserting that handmade_internal is true
+pub const debug = struct {
+    pub fn readEntireFile(filename: []const u8) platform.debug.ReadFileResult {
+        assert(options.handmade_internal);
+
+        var result = platform.debug.ReadFileResult{
+            .contents = null,
+            .size = 0,
+        };
+
+        const file_handle = win.CreateFileA(
+            filename.ptr,
+            win.GENERIC_READ,
+            win.FILE_SHARE_READ,
+            null,
+            win.OPEN_EXISTING,
+            0,
+            null,
+        );
+
+        if (file_handle != win.INVALID_HANDLE_VALUE) {
+            var file_size: win.LARGE_INTEGER = undefined;
+            if (win.GetFileSizeEx(file_handle, &file_size) != 0) {
+                if (file_size.QuadPart > 0) {
+                    const file_size_u32: u32 = @intCast(file_size.QuadPart);
+                    result.contents = win.VirtualAlloc(
+                        null,
+                        file_size_u32,
+                        win.MEM_RESERVE | win.MEM_COMMIT,
+                        win.PAGE_READWRITE,
+                    );
+                    if (result.contents != null) {
+                        var bytes_read: win.DWORD = undefined;
+                        if (win.ReadFile(
+                            file_handle,
+                            result.contents,
+                            file_size_u32,
+                            &bytes_read,
+                            null,
+                        ) != 0 and bytes_read == file_size_u32) {
+                            // NOTE: file is read successfully
+                            result.size = file_size_u32;
+                        } else {
+                            if (result.contents != null) {
+                                freeFileMemory(result.contents.?);
+                                result.contents = null;
+                            }
+                        }
+                    } else {
+                        platform.log.err("Failed to read file: {s}", .{filename});
+                    }
+                } else {
+                    platform.log.err("File is empty: {s}", .{filename});
+                }
+            } else {
+                platform.log.err("Failed to get file size: {s}", .{filename});
+            }
+            _ = win.CloseHandle(file_handle);
+        } else {
+            platform.log.err("Failed to open file: {s}", .{filename});
+        }
+
+        return result;
+    }
+
+    // TODO(ariel): use zig error instead of bool
+    pub fn writeEntireFile(filename: []const u8, memory_size: u32, memory: *anyopaque) bool {
+        assert(options.handmade_internal);
+
+        var result = false;
+
+        const file_handle = win.CreateFileA(
+            filename.ptr,
+            win.GENERIC_WRITE,
+            0,
+            null,
+            win.CREATE_ALWAYS,
+            0,
+            null,
+        );
+
+        if (file_handle != win.INVALID_HANDLE_VALUE) {
+            var bytes_written: win.DWORD = undefined;
+            if (win.WriteFile(
+                file_handle,
+                memory,
+                memory_size,
+                &bytes_written,
+                null,
+            ) != 0) {
+                // NOTE: file is written successfully
+                result = bytes_written == memory_size;
+            } else {
+                platform.log.err("Failed to write file: {s}", .{filename});
+            }
+
+            _ = win.CloseHandle(file_handle);
+        } else {
+            platform.log.err("Failed to open file: {s}", .{filename});
+        }
+
+        return result;
+    }
+
+    pub fn freeFileMemory(bitmap_memory: *anyopaque) void {
+        assert(options.handmade_internal);
+        _ = win.VirtualFree(bitmap_memory, 0, win.MEM_RELEASE);
+    }
+};

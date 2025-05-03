@@ -11,8 +11,8 @@ const builtin = @import("builtin");
 
 pub const log = std.log.scoped(.engine);
 
-// platforms
-pub const windows = @import("./windows/windows.zig");
+// platforms, should be private and not exposed directly to the game
+const windows = @import("./windows/windows.zig");
 
 // TODO(ariel): hypotetically if this was a library, we would not need to import main.zig here
 // maybe build.zig should define a "app" module that will be used here?
@@ -107,4 +107,47 @@ pub const Memory = struct {
     transient_storage_size: u64,
     /// required to be cleared to zero at startup
     transient_storage: *anyopaque,
+};
+
+/// namespace for debug only functions
+/// asserting that handmade_internal is true
+pub const debug = struct {
+    pub const ReadFileResult = struct {
+        contents: ?*anyopaque,
+        size: u32,
+    };
+
+    pub fn readEntireFile(filename: []const u8) ReadFileResult {
+        switch (builtin.os.tag) {
+            .windows => {
+                return windows.debug.readEntireFile(filename);
+            },
+            else => {
+                @compileError("Unsupported platform");
+            },
+        }
+    }
+
+    // TODO(ariel): should this be public?
+    pub fn freeFileMemory(memory: *anyopaque) void {
+        switch (builtin.os.tag) {
+            .windows => {
+                return windows.debug.freeFileMemory(memory);
+            },
+            else => {
+                @compileError("Unsupported platform");
+            },
+        }
+    }
+
+    pub fn writeEntireFile(filename: []const u8, memory: *anyopaque, size: u32) bool {
+        switch (builtin.os.tag) {
+            .windows => {
+                return windows.debug.writeEntireFile(filename, size, memory);
+            },
+            else => {
+                @compileError("Unsupported platform");
+            },
+        }
+    }
 };
