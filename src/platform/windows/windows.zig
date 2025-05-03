@@ -110,12 +110,80 @@ pub fn run() !void {
     while (global_running) {
         var msg: win.MSG = undefined;
 
+        var keyboard_controller = &new_input.controllers[0];
+        // FIXME(casey): zeroing everying we lose up/down state
+        keyboard_controller.reset();
+
         while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
-            if (msg.message == win.WM_QUIT) {
-                global_running = false;
+            switch (msg.message) {
+                win.WM_QUIT => {
+                    global_running = false;
+                },
+                win.WM_SYSKEYDOWN, win.WM_SYSKEYUP, win.WM_KEYDOWN, win.WM_KEYUP => {
+                    const vk_code = msg.wParam;
+                    const was_down = (msg.lParam & (1 << 30)) != 0;
+                    const is_down = (msg.lParam & (1 << 31)) == 0;
+                    const alt_key_was_down = (msg.lParam & (1 << 29)) != 0;
+                    if (is_down != was_down) {
+                        switch (vk_code) {
+                            'W' => {},
+                            'A' => {},
+                            'S' => {},
+                            'D' => {},
+                            'Q' => {
+                                processKeyboardMessage(
+                                    keyboard_controller.getButton(.left_shoulder),
+                                    is_down,
+                                );
+                            },
+                            'E' => {
+                                processKeyboardMessage(
+                                    keyboard_controller.getButton(.right_shoulder),
+                                    is_down,
+                                );
+                            },
+                            win.VK_UP => {
+                                processKeyboardMessage(
+                                    keyboard_controller.getButton(.up),
+                                    is_down,
+                                );
+                            },
+                            win.VK_DOWN => {
+                                processKeyboardMessage(
+                                    keyboard_controller.getButton(.down),
+                                    is_down,
+                                );
+                            },
+                            win.VK_LEFT => {
+                                processKeyboardMessage(
+                                    keyboard_controller.getButton(.left),
+                                    is_down,
+                                );
+                            },
+                            win.VK_RIGHT => {
+                                processKeyboardMessage(
+                                    keyboard_controller.getButton(.right),
+                                    is_down,
+                                );
+                            },
+                            win.VK_SPACE => {},
+                            win.VK_ESCAPE => {
+                                global_running = false;
+                            },
+                            win.VK_F4 => {
+                                if (alt_key_was_down) {
+                                    global_running = false;
+                                }
+                            },
+                            else => {},
+                        }
+                    }
+                },
+                else => {
+                    _ = win.TranslateMessage(&msg);
+                    _ = win.DispatchMessageA(&msg);
+                },
             }
-            _ = win.TranslateMessage(&msg);
-            _ = win.DispatchMessageA(&msg);
         }
 
         const max_controllers: usize = @min(xinput.XUSER_MAX_COUNT, new_input.controllers.len);
@@ -176,25 +244,8 @@ pub fn run() !void {
                 // const start = (pad.wButtons & xinput.XINPUT_GAMEPAD_START) != 0;
                 // const back = (pad.wButtons & xinput.XINPUT_GAMEPAD_BACK) != 0;
 
-                // TODO(ariel): delete this
-                // y_offset += @divTrunc(@as(i32, @intCast(stick_left_y)), 4096);
-                // x_offset += @divTrunc(@as(i32, @intCast(stick_left_x)), 4096);
-
-                // pentatonic scale
-                // if (left_shoulder) {
-                //     const stick_tone_offset: i32 = @intFromFloat(256 * @as(f32, @floatFromInt(stick_left_y >> 12)));
-                //     sound_output.setTone(@intCast(@max(128, 512 + stick_tone_offset)));
-                // } else if (a_button) {
-                //     sound_output.setTone(512);
-                // } else if (b_button) {
-                //     sound_output.setTone(640);
-                // } else if (x_button) {
-                //     sound_output.setTone(768);
-                // } else if (y_button) {
-                //     sound_output.setTone(896);
-                // }
             } else {
-                // Controller is not connected
+                // NOTE: controller is not connected
             }
         }
 
@@ -292,32 +343,33 @@ fn mainWindowCallback(
             platform.log.debug("WM_ACTIVATEAPP", .{});
         },
         win.WM_SYSKEYDOWN, win.WM_SYSKEYUP, win.WM_KEYDOWN, win.WM_KEYUP => {
-            const vk_code = wparam;
-            const was_down = (lparam & (1 << 30)) != 0;
-            const is_down = (lparam & (1 << 31)) == 0;
-            const alt_key_was_down = (lparam & (1 << 29)) != 0;
-            if (is_down != was_down) {
-                switch (vk_code) {
-                    'W' => {},
-                    'A' => {},
-                    'S' => {},
-                    'D' => {},
-                    'Q' => {},
-                    'E' => {},
-                    win.VK_UP => {},
-                    win.VK_DOWN => {},
-                    win.VK_LEFT => {},
-                    win.VK_RIGHT => {},
-                    win.VK_SPACE => {},
-                    win.VK_ESCAPE => {},
-                    win.VK_F4 => {
-                        if (alt_key_was_down) {
-                            global_running = false;
-                        }
-                    },
-                    else => {},
-                }
-            }
+            @panic("keyboard event came in through a non dispatch message");
+            // const vk_code = wparam;
+            // const was_down = (lparam & (1 << 30)) != 0;
+            // const is_down = (lparam & (1 << 31)) == 0;
+            // const alt_key_was_down = (lparam & (1 << 29)) != 0;
+            // if (is_down != was_down) {
+            //     switch (vk_code) {
+            //         'W' => {},
+            //         'A' => {},
+            //         'S' => {},
+            //         'D' => {},
+            //         'Q' => {},
+            //         'E' => {},
+            //         win.VK_UP => {},
+            //         win.VK_DOWN => {},
+            //         win.VK_LEFT => {},
+            //         win.VK_RIGHT => {},
+            //         win.VK_SPACE => {},
+            //         win.VK_ESCAPE => {},
+            //         win.VK_F4 => {
+            //             if (alt_key_was_down) {
+            //                 global_running = false;
+            //             }
+            //         },
+            //         else => {},
+            //     }
+            // }
         },
         win.WM_PAINT => {
             var ps: win.PAINTSTRUCT = undefined;
@@ -614,6 +666,14 @@ fn processXInputDigitalButton(
 ) void {
     new_state.ended_down = (x_input_button_state & button_bit) == button_bit;
     new_state.half_transition_count = if (old_state.ended_down != new_state.ended_down) 1 else 0;
+}
+
+fn processKeyboardMessage(
+    new_state: *platform.Input.Controller.ButtonState,
+    is_down: bool,
+) void {
+    new_state.ended_down = is_down;
+    new_state.half_transition_count += 1;
 }
 
 /// namespace for debug only functions

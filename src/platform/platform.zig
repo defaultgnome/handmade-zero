@@ -96,6 +96,10 @@ pub const Input = struct {
         pub fn getButton(self: *Controller, label: ButtonLabel) *ButtonState {
             return &self.buttons[@intFromEnum(label)];
         }
+
+        pub fn reset(self: *Controller) void {
+            self.* = std.mem.zeroes(Controller);
+        }
     };
 };
 
