@@ -108,83 +108,11 @@ pub fn run() !void {
     var last_counter = std.os.windows.QueryPerformanceCounter();
 
     while (global_running) {
-        var msg: win.MSG = undefined;
-
         var keyboard_controller = &new_input.controllers[0];
         // FIXME(casey): zeroing everying we lose up/down state
         keyboard_controller.reset();
 
-        while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
-            switch (msg.message) {
-                win.WM_QUIT => {
-                    global_running = false;
-                },
-                win.WM_SYSKEYDOWN, win.WM_SYSKEYUP, win.WM_KEYDOWN, win.WM_KEYUP => {
-                    const vk_code = msg.wParam;
-                    const was_down = (msg.lParam & (1 << 30)) != 0;
-                    const is_down = (msg.lParam & (1 << 31)) == 0;
-                    const alt_key_was_down = (msg.lParam & (1 << 29)) != 0;
-                    if (is_down != was_down) {
-                        switch (vk_code) {
-                            'W' => {},
-                            'A' => {},
-                            'S' => {},
-                            'D' => {},
-                            'Q' => {
-                                processKeyboardMessage(
-                                    keyboard_controller.getButton(.left_shoulder),
-                                    is_down,
-                                );
-                            },
-                            'E' => {
-                                processKeyboardMessage(
-                                    keyboard_controller.getButton(.right_shoulder),
-                                    is_down,
-                                );
-                            },
-                            win.VK_UP => {
-                                processKeyboardMessage(
-                                    keyboard_controller.getButton(.up),
-                                    is_down,
-                                );
-                            },
-                            win.VK_DOWN => {
-                                processKeyboardMessage(
-                                    keyboard_controller.getButton(.down),
-                                    is_down,
-                                );
-                            },
-                            win.VK_LEFT => {
-                                processKeyboardMessage(
-                                    keyboard_controller.getButton(.left),
-                                    is_down,
-                                );
-                            },
-                            win.VK_RIGHT => {
-                                processKeyboardMessage(
-                                    keyboard_controller.getButton(.right),
-                                    is_down,
-                                );
-                            },
-                            win.VK_SPACE => {},
-                            win.VK_ESCAPE => {
-                                global_running = false;
-                            },
-                            win.VK_F4 => {
-                                if (alt_key_was_down) {
-                                    global_running = false;
-                                }
-                            },
-                            else => {},
-                        }
-                    }
-                },
-                else => {
-                    _ = win.TranslateMessage(&msg);
-                    _ = win.DispatchMessageA(&msg);
-                },
-            }
-        }
+        processPendingMessages(window, keyboard_controller);
 
         const max_controllers: usize = @min(xinput.XUSER_MAX_COUNT, new_input.controllers.len);
         for (0..max_controllers) |controller_index| {
@@ -674,6 +602,81 @@ fn processKeyboardMessage(
 ) void {
     new_state.ended_down = is_down;
     new_state.half_transition_count += 1;
+}
+
+fn processPendingMessages(window: win.HWND, keyboard_controller: *platform.Input.Controller) void {
+    var msg: win.MSG = undefined;
+    while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
+        switch (msg.message) {
+            win.WM_QUIT => {
+                global_running = false;
+            },
+            win.WM_SYSKEYDOWN, win.WM_SYSKEYUP, win.WM_KEYDOWN, win.WM_KEYUP => {
+                const vk_code = msg.wParam;
+                const was_down = (msg.lParam & (1 << 30)) != 0;
+                const is_down = (msg.lParam & (1 << 31)) == 0;
+                const alt_key_was_down = (msg.lParam & (1 << 29)) != 0;
+                if (is_down != was_down) {
+                    switch (vk_code) {
+                        'W' => {},
+                        'A' => {},
+                        'S' => {},
+                        'D' => {},
+                        'Q' => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.left_shoulder),
+                                is_down,
+                            );
+                        },
+                        'E' => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.right_shoulder),
+                                is_down,
+                            );
+                        },
+                        win.VK_UP => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.up),
+                                is_down,
+                            );
+                        },
+                        win.VK_DOWN => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.down),
+                                is_down,
+                            );
+                        },
+                        win.VK_LEFT => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.left),
+                                is_down,
+                            );
+                        },
+                        win.VK_RIGHT => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.right),
+                                is_down,
+                            );
+                        },
+                        win.VK_SPACE => {},
+                        win.VK_ESCAPE => {
+                            global_running = false;
+                        },
+                        win.VK_F4 => {
+                            if (alt_key_was_down) {
+                                global_running = false;
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            },
+            else => {
+                _ = win.TranslateMessage(&msg);
+                _ = win.DispatchMessageA(&msg);
+            },
+        }
+    }
 }
 
 /// namespace for debug only functions
