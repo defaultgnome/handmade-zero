@@ -16,10 +16,6 @@ var global_backbuffer: OffscreenBuffer = undefined;
 var global_secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
 
 pub fn run() !void {
-    if (options.developer_mode) {
-        platform.log.info("Developer mode enabled", .{});
-    }
-
     const inst = std.os.windows.kernel32.GetModuleHandleW(null);
 
     loadXInput();
@@ -77,7 +73,7 @@ pub fn run() !void {
     ) orelse unreachable));
 
     const base_adderss: win.LPVOID = val: {
-        if (options.developer_mode) {
+        if (options.handmade_internal) {
             break :val @ptrFromInt(stdx.mem.terabyte_in_bytes * 2);
         } else {
             break :val null;

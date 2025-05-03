@@ -5,15 +5,22 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Expose to build command
-    const developer_mode = b.option(
+    const handmade_internal = b.option(
         bool,
-        "developer_mode",
+        "handmade_internal",
         "Enable developer mode features. Set to true on Debug builds.",
+    ) orelse (optimize == .Debug);
+
+    const handmade_slow = b.option(
+        bool,
+        "handmade_slow",
+        "Enable slow debug functionality. Set to true on Debug builds.",
     ) orelse (optimize == .Debug);
 
     // create options to be passed to modules
     const options = b.addOptions();
-    options.addOption(bool, "developer_mode", developer_mode);
+    options.addOption(bool, "handmade_internal", handmade_internal);
+    options.addOption(bool, "handmade_slow", handmade_slow);
 
     const stdx_mod = b.createModule(.{
         .root_source_file = b.path("src/libs/stdx/stdx.zig"),
