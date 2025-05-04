@@ -128,21 +128,27 @@ pub fn run() !void {
                 new_controller.is_connected = true;
                 const pad: xinput.XINPUT_GAMEPAD = controller_state.Gamepad;
 
-                new_controller.is_analog = true;
-
                 new_controller.stick_average_x = processXInputStickValue(pad.sThumbLX, .left);
                 new_controller.stick_average_y = processXInputStickValue(pad.sThumbLY, .left);
 
+                if (new_controller.stick_average_x != 0 or new_controller.stick_average_y != 0) {
+                    new_controller.is_analog = true;
+                }
+
                 if (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_UP != 0) {
                     new_controller.stick_average_y = 1;
+                    new_controller.is_analog = false;
                 } else if (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_DOWN != 0) {
                     new_controller.stick_average_y = -1;
+                    new_controller.is_analog = false;
                 }
 
                 if (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_LEFT != 0) {
                     new_controller.stick_average_x = -1;
+                    new_controller.is_analog = false;
                 } else if (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_RIGHT != 0) {
                     new_controller.stick_average_x = 1;
+                    new_controller.is_analog = false;
                 }
 
                 const buttons = [_]struct { xinput.DWORD, platform.Input.Controller.ButtonLabel }{
@@ -638,10 +644,11 @@ const StickPlacement = enum {
 fn processXInputStickValue(stick_value: xinput.SHORT, placement: StickPlacement) f32 {
     var result: f32 = 0;
     const deadzone = placement.deadzone();
+    const deadzone_f32: f32 = @floatFromInt(deadzone);
     if (stick_value < -deadzone) {
-        result = @as(f32, @floatFromInt(stick_value)) / 32_768;
+        result = @as(f32, @floatFromInt(stick_value + deadzone)) / (32_768 - deadzone_f32);
     } else if (stick_value > deadzone) {
-        result = @as(f32, @floatFromInt(stick_value)) / 32_767;
+        result = @as(f32, @floatFromInt(stick_value - deadzone)) / (32_768 - deadzone_f32);
     }
     return result;
 }

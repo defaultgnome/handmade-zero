@@ -72,6 +72,7 @@ pub const Input = struct {
 
     pub const Controller = struct {
         is_connected: bool = false,
+        /// gamepad CAN be digital when using the dpad
         is_analog: bool = false,
         // TODO(ariel): extend to both sticks? (for chanllenge / need)
         stick_average_x: f32 = 0,
