@@ -48,7 +48,9 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
     exe.linkLibC();
-    exe.linkSystemLibrary("gdi32");
+    if (target.result.os.tag == .windows) {
+        exe.linkSystemLibrary("gdi32");
+    }
 
     b.installArtifact(exe);
 
