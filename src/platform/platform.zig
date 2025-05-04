@@ -7,6 +7,7 @@
 //! we need main.zig to impleament the Game API
 
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 
 pub const log = std.log.scoped(.engine);
@@ -52,45 +53,58 @@ pub const SoundBuffer = struct {
     sample_count: usize,
 };
 
+// TODO(ariel): should we make this a generic fn for the struct?
 pub const Input = struct {
-    controllers: [4]Controller,
+    pub const KEYBOARD_COUNT = 1;
+    pub const GAMEPAD_COUNT = 4;
+    /// keyboard is the first controller, the rest are gamepads
+    controllers: [KEYBOARD_COUNT + GAMEPAD_COUNT]Controller,
+
+    pub fn getKeyboard(self: *Input) *Controller {
+        return &self.controllers[0];
+    }
+
+    pub fn getGamepad(self: *Input, index: usize) *Controller {
+        assert(index < GAMEPAD_COUNT);
+        // TODO(ariel): should we assert here that the gamepad is analog?
+        return &self.controllers[index + KEYBOARD_COUNT];
+    }
 
     pub const Controller = struct {
+        is_connected: bool = false,
+        is_analog: bool = false,
         // TODO(ariel): extend to both sticks? (for chanllenge / need)
-        /// if false, values will be set to the extreme values: -1.0f and 1.0f
-        is_analog: bool,
-
-        start_x: f32,
-        start_y: f32,
-        min_x: f32,
-        min_y: f32,
-        max_x: f32,
-        max_y: f32,
-        end_x: f32,
-        end_y: f32,
+        stick_average_x: f32 = 0,
+        stick_average_y: f32 = 0,
 
         // TODO(ariel): is it better to have c union here?
-        /// up, down, left, right, left_shoulder, right_shoulder
-        buttons: [6]ButtonState,
+        buttons: [@typeInfo(ButtonLabel).@"enum".fields.len]ButtonState,
 
         pub const ButtonState = struct {
-            ended_down: bool,
-            half_transition_count: u8,
+            ended_down: bool = false,
+            half_transition_count: u8 = 0,
         };
 
         pub const ButtonLabel = enum(usize) {
-            // TODO(ariel): i think up, down, left, right should be used for dpad, and a, b, x, y for the buttons
-            // or to be generic for more contorllers arrow_up and button_up
+            move_up = 0,
+            move_down,
+            move_left,
+            move_right,
+
             /// y
-            up = 0,
+            action_up,
             /// a
-            down = 1,
+            action_down,
             /// x
-            left = 2,
+            action_left,
             /// b
-            right = 3,
-            left_shoulder = 4,
-            right_shoulder = 5,
+            action_right,
+
+            left_shoulder,
+            right_shoulder,
+
+            start,
+            back,
         };
 
         pub fn getButton(self: *Controller, label: ButtonLabel) *ButtonState {

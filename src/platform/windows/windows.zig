@@ -108,58 +108,52 @@ pub fn run() !void {
     var last_counter = std.os.windows.QueryPerformanceCounter();
 
     while (global_running) {
-        var keyboard_controller = &new_input.controllers[0];
-        // FIXME(casey): zeroing everying we lose up/down state
-        keyboard_controller.reset();
+        const old_keyboard_controller = old_input.getKeyboard();
+        var new_keyboard_controller = new_input.getKeyboard();
+        new_keyboard_controller.reset();
+        new_keyboard_controller.is_connected = true;
+        // TODO(ariel): should we move this fn to Input.Controller?
+        for (&new_keyboard_controller.buttons, 0..) |*button, i| {
+            button.ended_down = old_keyboard_controller.buttons[i].ended_down;
+        }
 
-        processPendingMessages(window, keyboard_controller);
+        processPendingMessages(window, new_keyboard_controller);
 
-        const max_controllers: usize = @min(xinput.XUSER_MAX_COUNT, new_input.controllers.len);
+        const max_controllers: usize = @min(xinput.XUSER_MAX_COUNT, platform.Input.GAMEPAD_COUNT);
         for (0..max_controllers) |controller_index| {
-            var old_controller = &old_input.controllers[controller_index];
-            var new_controller = &new_input.controllers[controller_index];
+            var old_controller = old_input.getGamepad(controller_index);
+            var new_controller = new_input.getGamepad(controller_index);
             var controller_state: xinput.XINPUT_STATE = undefined;
             if (XInputGetState(@intCast(controller_index), &controller_state) == win.ERROR_SUCCESS) {
-                // Controller is connected
+                new_controller.is_connected = true;
                 const pad: xinput.XINPUT_GAMEPAD = controller_state.Gamepad;
-                // const up = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_UP) != 0;
-                // const down = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_DOWN) != 0;
-                // const left = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_LEFT) != 0;
-                // const right = (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_RIGHT) != 0;
 
                 new_controller.is_analog = true;
 
-                const stick_left_x: f32 = val: {
-                    const f: f32 = @floatFromInt(pad.sThumbLX);
-                    const div: f32 = if (f < 0) 32_768 else 32_767;
-                    break :val f / div;
-                };
-                new_controller.start_x = old_controller.end_x;
-                new_controller.end_x = stick_left_x;
-                new_controller.min_x = stick_left_x;
-                new_controller.max_x = stick_left_x;
+                new_controller.stick_average_x = processXInputStickValue(pad.sThumbLX, .left);
+                new_controller.stick_average_y = processXInputStickValue(pad.sThumbLY, .left);
 
-                const stick_left_y: f32 = val: {
-                    const f: f32 = @floatFromInt(pad.sThumbLY);
-                    const div: f32 = if (f < 0) 32_768 else 32_767;
-                    break :val f / div;
-                };
-                new_controller.start_y = old_controller.end_y;
-                new_controller.end_y = stick_left_y;
-                new_controller.min_y = stick_left_y;
-                new_controller.max_y = stick_left_y;
+                if (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_UP != 0) {
+                    new_controller.stick_average_y = 1;
+                } else if (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_DOWN != 0) {
+                    new_controller.stick_average_y = -1;
+                }
 
-                // TODO(casey): deadzone processing
-                // XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE
-                // XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE
+                if (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_LEFT != 0) {
+                    new_controller.stick_average_x = -1;
+                } else if (pad.wButtons & xinput.XINPUT_GAMEPAD_DPAD_RIGHT != 0) {
+                    new_controller.stick_average_x = 1;
+                }
 
                 const buttons = [_]struct { xinput.DWORD, platform.Input.Controller.ButtonLabel }{
-                    .{ xinput.XINPUT_GAMEPAD_A, .down },
-                    .{ xinput.XINPUT_GAMEPAD_B, .right },
-                    .{ xinput.XINPUT_GAMEPAD_X, .left },
-                    .{ xinput.XINPUT_GAMEPAD_Y, .up },
+                    .{ xinput.XINPUT_GAMEPAD_A, .action_down },
+                    .{ xinput.XINPUT_GAMEPAD_B, .action_right },
+                    .{ xinput.XINPUT_GAMEPAD_X, .action_left },
+                    .{ xinput.XINPUT_GAMEPAD_Y, .action_up },
                     .{ xinput.XINPUT_GAMEPAD_LEFT_SHOULDER, .left_shoulder },
                     .{ xinput.XINPUT_GAMEPAD_RIGHT_SHOULDER, .right_shoulder },
+                    .{ xinput.XINPUT_GAMEPAD_START, .start },
+                    .{ xinput.XINPUT_GAMEPAD_BACK, .back },
                 };
                 inline for (buttons) |button| {
                     processXInputDigitalButton(
@@ -169,11 +163,36 @@ pub fn run() !void {
                         new_controller.getButton(button[1]),
                     );
                 }
-                // const start = (pad.wButtons & xinput.XINPUT_GAMEPAD_START) != 0;
-                // const back = (pad.wButtons & xinput.XINPUT_GAMEPAD_BACK) != 0;
 
+                const threshold = 0.5;
+                processXInputDigitalButton(
+                    @intFromBool(new_controller.stick_average_x < -threshold),
+                    old_controller.getButton(.move_left),
+                    1,
+                    new_controller.getButton(.move_left),
+                );
+                processXInputDigitalButton(
+                    @intFromBool(new_controller.stick_average_x > threshold),
+                    old_controller.getButton(.move_right),
+                    1,
+                    new_controller.getButton(.move_right),
+                );
+                processXInputDigitalButton(
+                    @intFromBool(new_controller.stick_average_y < -threshold),
+                    old_controller.getButton(.move_down),
+                    1,
+                    new_controller.getButton(.move_down),
+                );
+                processXInputDigitalButton(
+                    @intFromBool(new_controller.stick_average_y > threshold),
+                    old_controller.getButton(.move_up),
+                    1,
+                    new_controller.getButton(.move_up),
+                );
             } else {
-                // NOTE: controller is not connected
+                // Because we swap the old and new input, we need to set the is_connected to false
+                // it could be that the controller was connected before, but now it's not.
+                new_controller.is_connected = false;
             }
         }
 
@@ -600,8 +619,31 @@ fn processKeyboardMessage(
     new_state: *platform.Input.Controller.ButtonState,
     is_down: bool,
 ) void {
+    assert(new_state.ended_down != is_down);
     new_state.ended_down = is_down;
     new_state.half_transition_count += 1;
+}
+
+const StickPlacement = enum {
+    left,
+    right,
+
+    fn deadzone(self: @This()) c_int {
+        return switch (self) {
+            .left => xinput.XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE,
+            .right => xinput.XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE,
+        };
+    }
+};
+fn processXInputStickValue(stick_value: xinput.SHORT, placement: StickPlacement) f32 {
+    var result: f32 = 0;
+    const deadzone = placement.deadzone();
+    if (stick_value < -deadzone) {
+        result = @as(f32, @floatFromInt(stick_value)) / 32_768;
+    } else if (stick_value > deadzone) {
+        result = @as(f32, @floatFromInt(stick_value)) / 32_767;
+    }
+    return result;
 }
 
 fn processPendingMessages(window: win.HWND, keyboard_controller: *platform.Input.Controller) void {
@@ -618,10 +660,30 @@ fn processPendingMessages(window: win.HWND, keyboard_controller: *platform.Input
                 const alt_key_was_down = (msg.lParam & (1 << 29)) != 0;
                 if (is_down != was_down) {
                     switch (vk_code) {
-                        'W' => {},
-                        'A' => {},
-                        'S' => {},
-                        'D' => {},
+                        'W' => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.move_up),
+                                is_down,
+                            );
+                        },
+                        'A' => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.move_left),
+                                is_down,
+                            );
+                        },
+                        'S' => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.move_down),
+                                is_down,
+                            );
+                        },
+                        'D' => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.move_right),
+                                is_down,
+                            );
+                        },
                         'Q' => {
                             processKeyboardMessage(
                                 keyboard_controller.getButton(.left_shoulder),
@@ -636,31 +698,39 @@ fn processPendingMessages(window: win.HWND, keyboard_controller: *platform.Input
                         },
                         win.VK_UP => {
                             processKeyboardMessage(
-                                keyboard_controller.getButton(.up),
+                                keyboard_controller.getButton(.action_up),
                                 is_down,
                             );
                         },
                         win.VK_DOWN => {
                             processKeyboardMessage(
-                                keyboard_controller.getButton(.down),
+                                keyboard_controller.getButton(.action_down),
                                 is_down,
                             );
                         },
                         win.VK_LEFT => {
                             processKeyboardMessage(
-                                keyboard_controller.getButton(.left),
+                                keyboard_controller.getButton(.action_left),
                                 is_down,
                             );
                         },
                         win.VK_RIGHT => {
                             processKeyboardMessage(
-                                keyboard_controller.getButton(.right),
+                                keyboard_controller.getButton(.action_right),
                                 is_down,
                             );
                         },
-                        win.VK_SPACE => {},
+                        win.VK_SPACE => {
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.back),
+                                is_down,
+                            );
+                        },
                         win.VK_ESCAPE => {
-                            global_running = false;
+                            processKeyboardMessage(
+                                keyboard_controller.getButton(.start),
+                                is_down,
+                            );
                         },
                         win.VK_F4 => {
                             if (alt_key_was_down) {

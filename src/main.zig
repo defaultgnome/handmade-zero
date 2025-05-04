@@ -42,15 +42,27 @@ pub fn updateAndRender(memory: *platform.Memory, input: *platform.Input, buffer:
         memory.is_initialized = true;
     }
 
-    var input0 = &input.controllers[0];
-    if (input0.is_analog) {
-        // TODO(casey): will need to move everything to floats
-        game_state.blue_offset += @intFromFloat(4 * input0.end_x);
-        game_state.tone_hz = 256 + @as(i32, @intFromFloat(128 * input0.end_y));
-    } else {}
+    for (&input.controllers) |*controller| {
+        if (!controller.is_connected) {
+            continue;
+        }
 
-    if (input0.getButton(.down).ended_down) {
-        game_state.green_offset += 1;
+        if (controller.is_analog) {
+            game_state.blue_offset += @intFromFloat(4 * controller.stick_average_x);
+            game_state.tone_hz = 256 + @as(i32, @intFromFloat(128 * controller.stick_average_y));
+        } else {
+            if (controller.getButton(.move_left).ended_down) {
+                game_state.blue_offset -= 1;
+            } else if (controller.getButton(.move_right).ended_down) {
+                game_state.blue_offset += 1;
+            }
+        }
+
+        if (controller.getButton(.move_down).ended_down) {
+            game_state.green_offset += 1;
+        } else if (controller.getButton(.move_up).ended_down) {
+            game_state.green_offset -= 1;
+        }
     }
 
     outputSound(sound_buffer, game_state.tone_hz);
