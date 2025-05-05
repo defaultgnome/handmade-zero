@@ -268,10 +268,13 @@ pub fn run() !void {
             const instant_elapsed_ns = instant_end.since(instant_start);
             var instant_elapsed_ms: f32 = @as(f32, @floatFromInt(instant_elapsed_ns)) / std.time.ns_per_ms;
             if (instant_elapsed_ms < target_frame_time_ms) {
-                while (instant_elapsed_ms < target_frame_time_ms) {
-                    if (sleep_is_granular) {
-                        std.Thread.sleep(@as(u64, @intFromFloat(target_frame_time_ms * std.time.ns_per_ms)) - instant_elapsed_ns);
+                if (sleep_is_granular) {
+                    const time_to_sleep = @as(u64, @intFromFloat(target_frame_time_ms * std.time.ns_per_ms)) - instant_elapsed_ns;
+                    if (time_to_sleep > 0) {
+                        std.Thread.sleep(time_to_sleep);
                     }
+                }
+                while (instant_elapsed_ms < target_frame_time_ms) {
                     const now = std.time.Instant.now() catch unreachable;
                     instant_elapsed_ms = @as(f32, @floatFromInt(now.since(instant_start))) / std.time.ns_per_ms;
                 }
