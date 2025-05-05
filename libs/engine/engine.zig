@@ -10,25 +10,21 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 
-pub const log = std.log.scoped(.engine);
-
 // platforms, should be private and not exposed directly to the game
 const windows = @import("./platform/windows/windows.zig");
 
-// TODO(ariel): hypotetically if this was a library, we would not need to import main.zig here
-// maybe build.zig should define a "app" module that will be used here?
-const game = @import("../main.zig");
-
 // ---- here lie the function that the platform will call ----
-pub const updateAndRender = game.updateAndRender;
+pub const GameVTable = struct {
+    update: *const fn (memory: *Memory, input: *Input, buffer: *OffscreenBuffer, sound_buffer: *SoundBuffer) void,
+};
 
 // ---- need to be called by the main.zig ----
 
 /// need to be called by the main.zig
-pub fn run() !void {
+pub fn run(vtable: GameVTable) !void {
     switch (builtin.os.tag) {
         .windows => {
-            try windows.run();
+            try windows.run(vtable);
         },
         else => {
             @compileError("Unsupported platform");

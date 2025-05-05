@@ -1,5 +1,6 @@
 const std = @import("std");
 
+// TODO(ariel): create build.zig for stdx and engine and import them here
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -28,6 +29,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const engine_mod = b.createModule(.{
+        .root_source_file = b.path("libs/engine/engine.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    engine_mod.addOptions("options", options);
+    engine_mod.addImport("stdx", stdx_mod);
+
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -35,13 +44,7 @@ pub fn build(b: *std.Build) void {
     });
     exe_mod.addOptions("options", options);
     exe_mod.addImport("stdx", stdx_mod);
-
-    const stdx_lib = b.addLibrary(.{
-        .linkage = .static,
-        .name = "stdx",
-        .root_module = stdx_mod,
-    });
-    b.installArtifact(stdx_lib);
+    exe_mod.addImport("engine", engine_mod);
 
     const exe = b.addExecutable(.{
         .name = "handmade_zero",

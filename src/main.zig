@@ -1,18 +1,19 @@
-//! see platform/platform.zig for more details
-
 const std = @import("std");
-const engine = @import("engine/engine.zig");
+const engine = @import("engine");
 
+// TODO(ariel): should we base this on optimize target?
 pub const std_options: std.Options = .{
     .log_level = .debug,
-    // TODO(ariel): move this part of the enigne to platform/engine, and merge here
+    // TODO(ariel): move this part to the enigne and merge here
     .log_scope_levels = &[_]std.log.ScopeLevel{
         .{ .scope = .engine, .level = .debug },
     },
 };
 
 pub fn main() !void {
-    try engine.run();
+    try engine.run(.{
+        .update = update,
+    });
 }
 
 // ================
@@ -28,7 +29,7 @@ const GameState = struct {
 // TODO: probably we want to keep here only the handful public Game API the platform will use
 // and move all the internal logic to a separate 'game' module.
 
-pub fn updateAndRender(memory: *engine.Memory, input: *engine.Input, buffer: *engine.OffscreenBuffer, sound_buffer: *engine.SoundBuffer) void {
+pub fn update(memory: *engine.Memory, input: *engine.Input, buffer: *engine.OffscreenBuffer, sound_buffer: *engine.SoundBuffer) void {
     std.debug.assert(@sizeOf(GameState) <= memory.permanent_storage_size);
 
     var game_state: *GameState = @alignCast(@ptrCast(memory.permanent_storage));

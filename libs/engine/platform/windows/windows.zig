@@ -9,6 +9,7 @@ const dsound = @cImport(@cInclude("dsound.h"));
 
 const stdx = @import("stdx");
 
+const internal = @import("../../internal.zig");
 const engine = @import("../../engine.zig");
 
 const assert = std.debug.assert;
@@ -17,13 +18,13 @@ var global_running = false;
 var global_backbuffer: OffscreenBuffer = undefined;
 var global_secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
 
-pub fn run() !void {
+pub fn run(vtable: engine.GameVTable) !void {
     const inst = std.os.windows.kernel32.GetModuleHandleW(null);
 
     // NOTE: set windows granularity to 1ms, so sleep can be as accurate as possible
     const sleep_is_granular = (win.timeBeginPeriod(1) == win.TIMERR_NOERROR);
     if (!sleep_is_granular) {
-        engine.log.warn("Failed to set windows granularity to 1ms", .{});
+        internal.log.warn("Failed to set windows granularity to 1ms", .{});
     }
 
     loadXInput();
@@ -44,7 +45,7 @@ pub fn run() !void {
     const target_frame_time_ms = 1000.0 / game_update_rate;
 
     if (win.RegisterClassA(&window_class) == 0) {
-        engine.log.err("Failed to register window class", .{});
+        internal.log.err("Failed to register window class", .{});
         // TODO(ariel): Handle error the zig way?
         return error.FailedToRegisterWindowClass;
     }
@@ -62,7 +63,7 @@ pub fn run() !void {
         @constCast(@ptrCast(&inst)),
         null,
     ) orelse {
-        engine.log.err("Failed to create window", .{});
+        internal.log.err("Failed to create window", .{});
         // TODO(ariel): Handle error the zig way?
         return error.FailedToCreateWindow;
     };
@@ -243,7 +244,7 @@ pub fn run() !void {
                 .height = global_backbuffer.height,
                 .pitch = global_backbuffer.pitch,
             };
-            engine.updateAndRender(&memory, new_input, &buffer, &sound_buffer);
+            vtable.update(&memory, new_input, &buffer, &sound_buffer);
 
             if (sound_is_valid) {
                 fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
@@ -280,7 +281,7 @@ pub fn run() !void {
                 }
             } else {
                 // TODO(casey): handle missed frame rate
-                engine.log.warn("Missed Frame Rate! took {d:.2}ms (+{d:.2}ms) to complete", .{ instant_elapsed_ms, instant_elapsed_ms - target_frame_time_ms });
+                internal.log.warn("Missed Frame Rate! took {d:.2}ms (+{d:.2}ms) to complete", .{ instant_elapsed_ms, instant_elapsed_ms - target_frame_time_ms });
             }
 
             // TODO(ariel): remove this / or use less spammy log
@@ -288,7 +289,7 @@ pub fn run() !void {
                 const fps: f32 = 1000.0 / instant_elapsed_ms;
                 const mega_hz = 1_000 * 1_000;
                 const mcpf: f64 = @as(f64, @floatFromInt(cycles_count_elapsed)) / mega_hz;
-                engine.log.debug("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ instant_elapsed_ms, fps, mcpf });
+                internal.log.debug("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ instant_elapsed_ms, fps, mcpf });
             }
             cycles_count_start = cycles_count_end;
             instant_start = instant_end;
@@ -317,7 +318,7 @@ fn mainWindowCallback(
             global_running = false;
         },
         win.WM_ACTIVATEAPP => {
-            engine.log.debug("WM_ACTIVATEAPP", .{});
+            internal.log.debug("WM_ACTIVATEAPP", .{});
         },
         win.WM_SYSKEYDOWN, win.WM_SYSKEYUP, win.WM_KEYDOWN, win.WM_KEYUP => {
             @panic("keyboard event came in through a non dispatch message");
@@ -460,7 +461,7 @@ fn loadXInput() void {
         }
     }
     if (xinput_library == null) {
-        engine.log.err("Failed to load xinput.dll", .{});
+        internal.log.err("Failed to load xinput.dll", .{});
         return;
     }
     XInputGetState = @ptrCast(win.GetProcAddress(xinput_library, "XInputGetState"));
@@ -477,7 +478,7 @@ const DirectSoundCreateFn = *const fn (
 fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
     const dsound_lib = win.LoadLibraryA("dsound.dll");
     if (dsound_lib == null) {
-        engine.log.err("Failed to load dsound.dll", .{});
+        internal.log.err("Failed to load dsound.dll", .{});
         return;
     }
     const DirectSoundCreate: ?DirectSoundCreateFn = @ptrCast(win.GetProcAddress(dsound_lib, "DirectSoundCreate"));
@@ -500,15 +501,15 @@ fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
                 var primary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
                 if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &primary_buffer, null))) {
                     if (dsound.SUCCEEDED(primary_buffer.*.lpVtbl.*.SetFormat.?(primary_buffer, &wave_format))) {
-                        engine.log.debug("Primary buffer format set", .{});
+                        internal.log.debug("Primary buffer format set", .{});
                     } else {
-                        engine.log.err("Failed to set primary buffer format", .{});
+                        internal.log.err("Failed to set primary buffer format", .{});
                     }
                 } else {
-                    engine.log.err("Failed to create primary buffer", .{});
+                    internal.log.err("Failed to create primary buffer", .{});
                 }
             } else {
-                engine.log.err("Failed to set cooperative level", .{});
+                internal.log.err("Failed to set cooperative level", .{});
             }
 
             var buffer_desc: dsound.DSBUFFERDESC = std.mem.zeroes(dsound.DSBUFFERDESC);
@@ -517,12 +518,12 @@ fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
             buffer_desc.dwBufferBytes = buffer_size;
             buffer_desc.lpwfxFormat = &wave_format;
             if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &global_secondary_buffer, null))) {
-                engine.log.debug("Secondary buffer created", .{});
+                internal.log.debug("Secondary buffer created", .{});
             } else {
-                engine.log.err("Failed to create secondary buffer", .{});
+                internal.log.err("Failed to create secondary buffer", .{});
             }
         } else {
-            engine.log.err("DirectSoundCreate failed", .{});
+            internal.log.err("DirectSoundCreate failed", .{});
         }
     }
 }
@@ -830,17 +831,17 @@ pub const debug = struct {
                             }
                         }
                     } else {
-                        engine.log.err("Failed to read file: {s}", .{filename});
+                        internal.log.err("Failed to read file: {s}", .{filename});
                     }
                 } else {
-                    engine.log.err("File is empty: {s}", .{filename});
+                    internal.log.err("File is empty: {s}", .{filename});
                 }
             } else {
-                engine.log.err("Failed to get file size: {s}", .{filename});
+                internal.log.err("Failed to get file size: {s}", .{filename});
             }
             _ = win.CloseHandle(file_handle);
         } else {
-            engine.log.err("Failed to open file: {s}", .{filename});
+            internal.log.err("Failed to open file: {s}", .{filename});
         }
 
         return result;
@@ -874,12 +875,12 @@ pub const debug = struct {
                 // NOTE: file is written successfully
                 result = bytes_written == memory_size;
             } else {
-                engine.log.err("Failed to write file: {s}", .{filename});
+                internal.log.err("Failed to write file: {s}", .{filename});
             }
 
             _ = win.CloseHandle(file_handle);
         } else {
-            engine.log.err("Failed to open file: {s}", .{filename});
+            internal.log.err("Failed to open file: {s}", .{filename});
         }
 
         return result;
