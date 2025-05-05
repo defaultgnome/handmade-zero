@@ -1,7 +1,7 @@
 //! see platform/platform.zig for more details
 
 const std = @import("std");
-const platform = @import("platform/platform.zig");
+const engine = @import("engine/engine.zig");
 
 pub const std_options: std.Options = .{
     .log_level = .debug,
@@ -12,7 +12,7 @@ pub const std_options: std.Options = .{
 };
 
 pub fn main() !void {
-    try platform.run();
+    try engine.run();
 }
 
 // ================
@@ -28,7 +28,7 @@ const GameState = struct {
 // TODO: probably we want to keep here only the handful public Game API the platform will use
 // and move all the internal logic to a separate 'game' module.
 
-pub fn updateAndRender(memory: *platform.Memory, input: *platform.Input, buffer: *platform.OffscreenBuffer, sound_buffer: *platform.SoundBuffer) void {
+pub fn updateAndRender(memory: *engine.Memory, input: *engine.Input, buffer: *engine.OffscreenBuffer, sound_buffer: *engine.SoundBuffer) void {
     std.debug.assert(@sizeOf(GameState) <= memory.permanent_storage_size);
 
     var game_state: *GameState = @alignCast(@ptrCast(memory.permanent_storage));
@@ -70,7 +70,7 @@ pub fn updateAndRender(memory: *platform.Memory, input: *platform.Input, buffer:
 }
 
 // ---- Internal API ----
-fn renderWeirdGradient(buffer: *platform.OffscreenBuffer, x_offset: i32, y_offset: i32) void {
+fn renderWeirdGradient(buffer: *engine.OffscreenBuffer, x_offset: i32, y_offset: i32) void {
     const h = @as(usize, @intCast(buffer.height));
     const w = @as(usize, @intCast(buffer.width));
     var row: [*]u8 = @ptrCast(buffer.bits);
@@ -87,7 +87,7 @@ fn renderWeirdGradient(buffer: *platform.OffscreenBuffer, x_offset: i32, y_offse
 }
 
 var t_sine: f32 = 0;
-fn outputSound(sound_buffer: *platform.SoundBuffer, tone_hz: i32) void {
+fn outputSound(sound_buffer: *engine.SoundBuffer, tone_hz: i32) void {
     const tone_volume = 0.1 * 32_768;
     const wave_period: f32 = @as(f32, @floatFromInt(sound_buffer.sample_rate)) / @as(f32, @floatFromInt(tone_hz));
 

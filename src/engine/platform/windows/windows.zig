@@ -9,7 +9,7 @@ const dsound = @cImport(@cInclude("dsound.h"));
 
 const stdx = @import("stdx");
 
-const platform = @import("../platform.zig");
+const engine = @import("../../engine.zig");
 
 const assert = std.debug.assert;
 
@@ -19,6 +19,12 @@ var global_secondary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
 
 pub fn run() !void {
     const inst = std.os.windows.kernel32.GetModuleHandleW(null);
+
+    // NOTE: set windows granularity to 1ms, so sleep can be as accurate as possible
+    const sleep_is_granular = (win.timeBeginPeriod(1) == win.TIMERR_NOERROR);
+    if (!sleep_is_granular) {
+        engine.log.warn("Failed to set windows granularity to 1ms", .{});
+    }
 
     loadXInput();
 
@@ -32,8 +38,13 @@ pub fn run() !void {
         .lpszClassName = "HandmadeZeroWindowClass",
     };
 
+    // TODO(casey): get monitor refresh rate from windows
+    const monitor_refresh_rate = 60;
+    const game_update_rate: comptime_float = monitor_refresh_rate / 2;
+    const target_frame_time_ms = 1000.0 / game_update_rate;
+
     if (win.RegisterClassA(&window_class) == 0) {
-        platform.log.err("Failed to register window class", .{});
+        engine.log.err("Failed to register window class", .{});
         // TODO(ariel): Handle error the zig way?
         return error.FailedToRegisterWindowClass;
     }
@@ -51,7 +62,7 @@ pub fn run() !void {
         @constCast(@ptrCast(&inst)),
         null,
     ) orelse {
-        platform.log.err("Failed to create window", .{});
+        engine.log.err("Failed to create window", .{});
         // TODO(ariel): Handle error the zig way?
         return error.FailedToCreateWindow;
     };
@@ -76,16 +87,16 @@ pub fn run() !void {
 
     const base_adderss: win.LPVOID = val: {
         if (options.handmade_internal) {
-            break :val @ptrFromInt(stdx.mem.terabyte_in_bytes * 2);
+            break :val @ptrFromInt(stdx.mem.bytes_per_terabyte * 2);
         } else {
             break :val null;
         }
     };
 
-    var memory = platform.Memory{
-        .permanent_storage_size = stdx.mem.megabyte_in_bytes * 64,
+    var memory = engine.Memory{
+        .permanent_storage_size = stdx.mem.bytes_per_megabyte * 64,
         .permanent_storage = undefined,
-        .transient_storage_size = stdx.mem.gigabyte_in_bytes * 4,
+        .transient_storage_size = stdx.mem.bytes_per_gigabyte * 4,
         .transient_storage = undefined,
     };
     const total_memory_size = memory.permanent_storage_size + memory.transient_storage_size;
@@ -99,13 +110,12 @@ pub fn run() !void {
     memory.transient_storage = @ptrFromInt(@intFromPtr(memory.permanent_storage) + memory.permanent_storage_size);
 
     // TODO(ariel): why using an array? and not just two variables?
-    var input = [2]platform.Input{ undefined, undefined };
+    var input = [2]engine.Input{ undefined, undefined };
     var old_input = &input[0];
     var new_input = &input[1];
 
-    const qpf = std.os.windows.QueryPerformanceFrequency();
-    var last_cycles_count = stdx.time.clock_cycles();
-    var last_counter = std.os.windows.QueryPerformanceCounter();
+    var cycles_count_start = stdx.time.CPUClock.cycles();
+    var instant_start = std.time.Instant.now() catch unreachable;
 
     while (global_running) {
         const old_keyboard_controller = old_input.getKeyboard();
@@ -119,7 +129,7 @@ pub fn run() !void {
 
         processPendingMessages(window, new_keyboard_controller);
 
-        const max_controllers: usize = @min(xinput.XUSER_MAX_COUNT, platform.Input.GAMEPAD_COUNT);
+        const max_controllers: usize = @min(xinput.XUSER_MAX_COUNT, engine.Input.GAMEPAD_COUNT);
         for (0..max_controllers) |controller_index| {
             var old_controller = old_input.getGamepad(controller_index);
             var new_controller = new_input.getGamepad(controller_index);
@@ -151,7 +161,7 @@ pub fn run() !void {
                     new_controller.is_analog = false;
                 }
 
-                const buttons = [_]struct { xinput.DWORD, platform.Input.Controller.ButtonLabel }{
+                const buttons = [_]struct { xinput.DWORD, engine.Input.Controller.ButtonLabel }{
                     .{ xinput.XINPUT_GAMEPAD_A, .action_down },
                     .{ xinput.XINPUT_GAMEPAD_B, .action_right },
                     .{ xinput.XINPUT_GAMEPAD_X, .action_left },
@@ -221,19 +231,19 @@ pub fn run() !void {
 
                 sound_is_valid = true;
             }
-            var sound_buffer: platform.SoundBuffer = .{
+            var sound_buffer: engine.SoundBuffer = .{
                 .sample_rate = sound_output.sample_rate,
                 .samples = samples,
                 .sample_count = bytes_to_write / sound_output.bytes_per_sample,
             };
 
-            var buffer: platform.OffscreenBuffer = .{
+            var buffer: engine.OffscreenBuffer = .{
                 .bits = global_backbuffer.bits,
                 .width = global_backbuffer.width,
                 .height = global_backbuffer.height,
                 .pitch = global_backbuffer.pitch,
             };
-            platform.updateAndRender(&memory, new_input, &buffer, &sound_buffer);
+            engine.updateAndRender(&memory, new_input, &buffer, &sound_buffer);
 
             if (sound_is_valid) {
                 fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
@@ -251,28 +261,39 @@ pub fn run() !void {
         }
 
         {
-            const end_cycles_count = stdx.time.clock_cycles();
+            const cycles_count_end = stdx.time.CPUClock.cycles();
+            const instant_end = std.time.Instant.now() catch unreachable;
 
-            const end_counter = std.os.windows.QueryPerformanceCounter();
+            const cycles_count_elapsed = cycles_count_end.since(cycles_count_start);
+            const instant_elapsed_ns = instant_end.since(instant_start);
+            var instant_elapsed_ms: f32 = @as(f32, @floatFromInt(instant_elapsed_ns)) / std.time.ns_per_ms;
+            if (instant_elapsed_ms < target_frame_time_ms) {
+                while (instant_elapsed_ms < target_frame_time_ms) {
+                    if (sleep_is_granular) {
+                        std.Thread.sleep(@as(u64, @intFromFloat(target_frame_time_ms * std.time.ns_per_ms)) - instant_elapsed_ns);
+                    }
+                    const now = std.time.Instant.now() catch unreachable;
+                    instant_elapsed_ms = @as(f32, @floatFromInt(now.since(instant_start))) / std.time.ns_per_ms;
+                }
+            } else {
+                // TODO(casey): handle missed frame rate
+                engine.log.warn("Missed Frame Rate! took {d:.2}ms (+{d:.2}ms) to complete", .{ instant_elapsed_ms, instant_elapsed_ms - target_frame_time_ms });
+            }
 
             // TODO(ariel): remove this / or use less spammy log
             if (false) {
-                const cycles_elapsed = end_cycles_count - last_cycles_count;
-                // TODO(ariel): use `std.time.Instant.since`
-                const counter_elapsed = end_counter - last_counter;
-                const ms_per_frame: f64 = @as(f64, @floatFromInt(1000 * counter_elapsed)) / @as(f64, @floatFromInt(qpf));
-                const fps: f64 = @as(f64, @floatFromInt(qpf)) / @as(f64, @floatFromInt(counter_elapsed));
+                const fps: f32 = 1000.0 / instant_elapsed_ms;
                 const mega_hz = 1_000 * 1_000;
-                const mcpf: f64 = @as(f64, @floatFromInt(cycles_elapsed)) / mega_hz;
-                platform.log.debug("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ ms_per_frame, fps, mcpf });
+                const mcpf: f64 = @as(f64, @floatFromInt(cycles_count_elapsed)) / mega_hz;
+                engine.log.debug("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ instant_elapsed_ms, fps, mcpf });
             }
-            last_cycles_count = end_cycles_count;
-            last_counter = end_counter;
+            cycles_count_start = cycles_count_end;
+            instant_start = instant_end;
         }
 
         {
             // TODO(ariel): should we defer this block from the top?
-            std.mem.swap(platform.Input, new_input, old_input);
+            std.mem.swap(engine.Input, new_input, old_input);
         }
     }
 }
@@ -293,7 +314,7 @@ fn mainWindowCallback(
             global_running = false;
         },
         win.WM_ACTIVATEAPP => {
-            platform.log.debug("WM_ACTIVATEAPP", .{});
+            engine.log.debug("WM_ACTIVATEAPP", .{});
         },
         win.WM_SYSKEYDOWN, win.WM_SYSKEYUP, win.WM_KEYDOWN, win.WM_KEYUP => {
             @panic("keyboard event came in through a non dispatch message");
@@ -436,7 +457,7 @@ fn loadXInput() void {
         }
     }
     if (xinput_library == null) {
-        platform.log.err("Failed to load xinput.dll", .{});
+        engine.log.err("Failed to load xinput.dll", .{});
         return;
     }
     XInputGetState = @ptrCast(win.GetProcAddress(xinput_library, "XInputGetState"));
@@ -453,7 +474,7 @@ const DirectSoundCreateFn = *const fn (
 fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
     const dsound_lib = win.LoadLibraryA("dsound.dll");
     if (dsound_lib == null) {
-        platform.log.err("Failed to load dsound.dll", .{});
+        engine.log.err("Failed to load dsound.dll", .{});
         return;
     }
     const DirectSoundCreate: ?DirectSoundCreateFn = @ptrCast(win.GetProcAddress(dsound_lib, "DirectSoundCreate"));
@@ -476,15 +497,15 @@ fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
                 var primary_buffer: dsound.LPDIRECTSOUNDBUFFER = undefined;
                 if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &primary_buffer, null))) {
                     if (dsound.SUCCEEDED(primary_buffer.*.lpVtbl.*.SetFormat.?(primary_buffer, &wave_format))) {
-                        platform.log.debug("Primary buffer format set", .{});
+                        engine.log.debug("Primary buffer format set", .{});
                     } else {
-                        platform.log.err("Failed to set primary buffer format", .{});
+                        engine.log.err("Failed to set primary buffer format", .{});
                     }
                 } else {
-                    platform.log.err("Failed to create primary buffer", .{});
+                    engine.log.err("Failed to create primary buffer", .{});
                 }
             } else {
-                platform.log.err("Failed to set cooperative level", .{});
+                engine.log.err("Failed to set cooperative level", .{});
             }
 
             var buffer_desc: dsound.DSBUFFERDESC = std.mem.zeroes(dsound.DSBUFFERDESC);
@@ -493,12 +514,12 @@ fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
             buffer_desc.dwBufferBytes = buffer_size;
             buffer_desc.lpwfxFormat = &wave_format;
             if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &global_secondary_buffer, null))) {
-                platform.log.debug("Secondary buffer created", .{});
+                engine.log.debug("Secondary buffer created", .{});
             } else {
-                platform.log.err("Failed to create secondary buffer", .{});
+                engine.log.err("Failed to create secondary buffer", .{});
             }
         } else {
-            platform.log.err("DirectSoundCreate failed", .{});
+            engine.log.err("DirectSoundCreate failed", .{});
         }
     }
 }
@@ -534,7 +555,7 @@ const SoundOutput = struct {
     }
 };
 
-fn fillSoundBuffer(sound_output: *SoundOutput, byte_to_lock: win.DWORD, bytes_to_write: win.DWORD, source_buffer: *platform.SoundBuffer) void {
+fn fillSoundBuffer(sound_output: *SoundOutput, byte_to_lock: win.DWORD, bytes_to_write: win.DWORD, source_buffer: *engine.SoundBuffer) void {
     var region1: win.LPVOID = undefined;
     var region2: win.LPVOID = undefined;
     var region1_size: win.DWORD = undefined;
@@ -613,16 +634,16 @@ fn clearSoundBuffer(sound_output: *SoundOutput) void {
 
 fn processXInputDigitalButton(
     x_input_button_state: xinput.DWORD,
-    old_state: *platform.Input.Controller.ButtonState,
+    old_state: *engine.Input.Controller.ButtonState,
     button_bit: xinput.DWORD,
-    new_state: *platform.Input.Controller.ButtonState,
+    new_state: *engine.Input.Controller.ButtonState,
 ) void {
     new_state.ended_down = (x_input_button_state & button_bit) == button_bit;
     new_state.half_transition_count = if (old_state.ended_down != new_state.ended_down) 1 else 0;
 }
 
 fn processKeyboardMessage(
-    new_state: *platform.Input.Controller.ButtonState,
+    new_state: *engine.Input.Controller.ButtonState,
     is_down: bool,
 ) void {
     assert(new_state.ended_down != is_down);
@@ -653,7 +674,7 @@ fn processXInputStickValue(stick_value: xinput.SHORT, placement: StickPlacement)
     return result;
 }
 
-fn processPendingMessages(window: win.HWND, keyboard_controller: *platform.Input.Controller) void {
+fn processPendingMessages(window: win.HWND, keyboard_controller: *engine.Input.Controller) void {
     var msg: win.MSG = undefined;
     while (win.PeekMessageA(&msg, window, 0, 0, win.PM_REMOVE) > 0) {
         switch (msg.message) {
@@ -759,10 +780,10 @@ fn processPendingMessages(window: win.HWND, keyboard_controller: *platform.Input
 /// namespace for debug only functions
 /// asserting that handmade_internal is true
 pub const debug = struct {
-    pub fn readEntireFile(filename: []const u8) platform.debug.ReadFileResult {
+    pub fn readEntireFile(filename: []const u8) engine.debug.ReadFileResult {
         assert(options.handmade_internal);
 
-        var result = platform.debug.ReadFileResult{
+        var result = engine.debug.ReadFileResult{
             .contents = null,
             .size = 0,
         };
@@ -806,17 +827,17 @@ pub const debug = struct {
                             }
                         }
                     } else {
-                        platform.log.err("Failed to read file: {s}", .{filename});
+                        engine.log.err("Failed to read file: {s}", .{filename});
                     }
                 } else {
-                    platform.log.err("File is empty: {s}", .{filename});
+                    engine.log.err("File is empty: {s}", .{filename});
                 }
             } else {
-                platform.log.err("Failed to get file size: {s}", .{filename});
+                engine.log.err("Failed to get file size: {s}", .{filename});
             }
             _ = win.CloseHandle(file_handle);
         } else {
-            platform.log.err("Failed to open file: {s}", .{filename});
+            engine.log.err("Failed to open file: {s}", .{filename});
         }
 
         return result;
@@ -850,12 +871,12 @@ pub const debug = struct {
                 // NOTE: file is written successfully
                 result = bytes_written == memory_size;
             } else {
-                platform.log.err("Failed to write file: {s}", .{filename});
+                engine.log.err("Failed to write file: {s}", .{filename});
             }
 
             _ = win.CloseHandle(file_handle);
         } else {
-            platform.log.err("Failed to open file: {s}", .{filename});
+            engine.log.err("Failed to open file: {s}", .{filename});
         }
 
         return result;

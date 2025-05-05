@@ -13,7 +13,7 @@ const builtin = @import("builtin");
 pub const log = std.log.scoped(.engine);
 
 // platforms, should be private and not exposed directly to the game
-const windows = @import("./windows/windows.zig");
+const windows = @import("./platform/windows/windows.zig");
 
 // TODO(ariel): hypotetically if this was a library, we would not need to import main.zig here
 // maybe build.zig should define a "app" module that will be used here?

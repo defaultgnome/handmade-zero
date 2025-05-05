@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(bool, "handmade_slow", handmade_slow);
 
     const stdx_mod = b.createModule(.{
-        .root_source_file = b.path("src/libs/stdx/stdx.zig"),
+        .root_source_file = b.path("libs/stdx/stdx.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -49,7 +49,9 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
     if (target.result.os.tag == .windows) {
+        exe.linkSystemLibrary("user32");
         exe.linkSystemLibrary("gdi32");
+        exe.linkSystemLibrary("winmm");
     }
 
     b.installArtifact(exe);
