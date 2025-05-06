@@ -42,7 +42,7 @@ pub fn run(vtable: engine.GameVTable) !void {
     // TODO(casey): get monitor refresh rate from windows
     const monitor_refresh_rate = 60;
     const game_update_rate: comptime_int = monitor_refresh_rate / 2;
-    const frames_of_audio_latency = 3;
+    const frames_of_audio_latency = game_update_rate / 10;
     const target_frame_time_ms = 1000.0 / @as(comptime_float, @floatFromInt(game_update_rate));
 
     if (win.RegisterClassA(&window_class) == 0) {
