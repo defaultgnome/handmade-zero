@@ -39,7 +39,12 @@ pub const OffscreenBuffer = struct {
     bits: ?*anyopaque = null,
     width: i32,
     height: i32,
+    /// bytes per row
     pitch: usize,
+
+    pub fn bytesPerPixel(self: OffscreenBuffer) usize {
+        return self.pitch / self.width;
+    }
 };
 
 /// this is the buffer that the game will use to play sound

@@ -41,8 +41,9 @@ pub fn run(vtable: engine.GameVTable) !void {
 
     // TODO(casey): get monitor refresh rate from windows
     const monitor_refresh_rate = 60;
-    const game_update_rate: comptime_float = monitor_refresh_rate / 2;
-    const target_frame_time_ms = 1000.0 / game_update_rate;
+    const game_update_rate: comptime_int = monitor_refresh_rate / 2;
+    const frames_of_audio_latency = 3;
+    const target_frame_time_ms = 1000.0 / @as(comptime_float, @floatFromInt(game_update_rate));
 
     if (win.RegisterClassA(&window_class) == 0) {
         internal.log.err("Failed to register window class", .{});
@@ -72,6 +73,7 @@ pub fn run(vtable: engine.GameVTable) !void {
 
     // Sound Test
     var sound_output = SoundOutput.init();
+    sound_output.latency_sample_count = (sound_output.sample_rate / game_update_rate) * frames_of_audio_latency;
     loadDSound(window, sound_output.sample_rate, sound_output.secondary_buffer_size);
     clearSoundBuffer(&sound_output);
     _ = global_secondary_buffer.*.lpVtbl.*.Play.?(global_secondary_buffer, 0, 0, dsound.DSBPLAY_LOOPING);
@@ -117,6 +119,12 @@ pub fn run(vtable: engine.GameVTable) !void {
 
     var cycles_count_start = stdx.time.CPUClock.cycles();
     var instant_start = std.time.Instant.now() catch unreachable;
+
+    var time_marker_index: usize = 0;
+    var time_markers = [_]debug.TimeMarker{debug.TimeMarker{}} ** (game_update_rate / 2);
+
+    var play_cursor_last: win.DWORD = 0;
+    var sound_is_valid = false;
 
     while (global_running) {
         const old_keyboard_controller = old_input.getKeyboard();
@@ -217,21 +225,17 @@ pub fn run(vtable: engine.GameVTable) !void {
             var byte_to_lock: win.DWORD = 0;
             var target_cursor: win.DWORD = 0;
             var bytes_to_write: win.DWORD = 0;
-            var play_cursor: win.DWORD = 0;
-            var write_cursor: win.DWORD = 0;
-            var sound_is_valid = false;
-            if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &play_cursor, &write_cursor))) {
+            if (sound_is_valid) {
                 byte_to_lock = (sound_output.running_sample_index * sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
-                target_cursor = (play_cursor + (sound_output.latency_sample_count * sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size;
+                target_cursor = (play_cursor_last + (sound_output.latency_sample_count * sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size;
                 if (byte_to_lock > target_cursor) {
                     bytes_to_write = sound_output.secondary_buffer_size - byte_to_lock;
                     bytes_to_write += target_cursor;
                 } else {
                     bytes_to_write = target_cursor - byte_to_lock;
                 }
-
-                sound_is_valid = true;
             }
+
             var sound_buffer: engine.SoundBuffer = .{
                 .sample_rate = sound_output.sample_rate,
                 .samples = samples,
@@ -252,6 +256,13 @@ pub fn run(vtable: engine.GameVTable) !void {
 
             {
                 const window_dimensions = getWindowDimensions(window);
+                if (options.handmade_internal) {
+                    debug.syncDisplay(
+                        &global_backbuffer,
+                        &time_markers,
+                        &sound_output,
+                    );
+                }
                 displayBufferInWindow(
                     &global_backbuffer,
                     device_context,
@@ -259,18 +270,45 @@ pub fn run(vtable: engine.GameVTable) !void {
                     window_dimensions.height,
                 );
             }
+
+            var play_cursor: win.DWORD = 0;
+            var write_cursor: win.DWORD = 0;
+            if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &play_cursor, &write_cursor))) {
+                play_cursor_last = play_cursor;
+                if (!sound_is_valid) {
+                    sound_output.running_sample_index = write_cursor / sound_output.bytes_per_sample;
+                    sound_is_valid = true;
+                }
+            } else {
+                sound_is_valid = false;
+            }
+
+            if (options.handmade_internal) {
+                var marker = &time_markers[time_marker_index];
+                marker.play_cursor = play_cursor;
+                marker.write_cursor = write_cursor;
+                time_marker_index = (time_marker_index + 1) % (time_markers.len);
+            }
         }
 
         {
-            const cycles_count_end = stdx.time.CPUClock.cycles();
-            const instant_end = std.time.Instant.now() catch unreachable;
+            // TODO(ariel): should we defer this block from the top?
+            std.mem.swap(engine.Input, new_input, old_input);
+        }
 
+        { // Performance Measurement
+
+            const cycles_count_end = stdx.time.CPUClock.cycles();
             const cycles_count_elapsed = cycles_count_end.since(cycles_count_start);
-            const instant_elapsed_ns = instant_end.since(instant_start);
-            var instant_elapsed_ms: f32 = @as(f32, @floatFromInt(instant_elapsed_ns)) / std.time.ns_per_ms;
+            cycles_count_start = cycles_count_end;
+
+            const instant_work = std.time.Instant.now() catch unreachable;
+            const instant_work_elapsed_ns = instant_work.since(instant_start);
+
+            var instant_elapsed_ms: f32 = @as(f32, @floatFromInt(instant_work_elapsed_ns)) / std.time.ns_per_ms;
             if (instant_elapsed_ms < target_frame_time_ms) {
                 if (sleep_is_granular) {
-                    const time_to_sleep = @as(u64, @intFromFloat(target_frame_time_ms * std.time.ns_per_ms)) - instant_elapsed_ns;
+                    const time_to_sleep = @as(u64, @intFromFloat(target_frame_time_ms * std.time.ns_per_ms)) - instant_work_elapsed_ns;
                     if (time_to_sleep > 0) {
                         std.Thread.sleep(time_to_sleep);
                     }
@@ -284,6 +322,9 @@ pub fn run(vtable: engine.GameVTable) !void {
                 internal.log.warn("Missed Frame Rate! took {d:.2}ms (+{d:.2}ms) to complete", .{ instant_elapsed_ms, instant_elapsed_ms - target_frame_time_ms });
             }
 
+            const instant_end = std.time.Instant.now() catch unreachable;
+            instant_start = instant_end;
+
             // TODO(ariel): remove this / or use less spammy log
             if (false) {
                 const fps: f32 = 1000.0 / instant_elapsed_ms;
@@ -291,13 +332,6 @@ pub fn run(vtable: engine.GameVTable) !void {
                 const mcpf: f64 = @as(f64, @floatFromInt(cycles_count_elapsed)) / mega_hz;
                 internal.log.debug("{d:.2}ms/f, {d:.2}f/s / {d:.2}mc/f", .{ instant_elapsed_ms, fps, mcpf });
             }
-            cycles_count_start = cycles_count_end;
-            instant_start = instant_end;
-        }
-
-        {
-            // TODO(ariel): should we defer this block from the top?
-            std.mem.swap(engine.Input, new_input, old_input);
         }
     }
 }
@@ -376,6 +410,7 @@ fn resizeDIBSection(buffer: *OffscreenBuffer, width: i32, height: i32) void {
     buffer.width = width;
     buffer.height = height;
     const bytes_per_pixel = 4;
+    buffer.bytes_per_pixel = bytes_per_pixel;
 
     buffer.info.bmiHeader.biWidth = buffer.width;
     // NOTE: Negative height for top-down DIB
@@ -514,7 +549,7 @@ fn loadDSound(window: win.HWND, sample_per_second: u32, buffer_size: u32) void {
 
             var buffer_desc: dsound.DSBUFFERDESC = std.mem.zeroes(dsound.DSBUFFERDESC);
             buffer_desc.dwSize = @sizeOf(dsound.DSBUFFERDESC);
-            buffer_desc.dwFlags = 0;
+            buffer_desc.dwFlags = dsound.DSBCAPS_GETCURRENTPOSITION2;
             buffer_desc.dwBufferBytes = buffer_size;
             buffer_desc.lpwfxFormat = &wave_format;
             if (dsound.SUCCEEDED(direct_sound.*.lpVtbl.*.CreateSoundBuffer.?(direct_sound, &buffer_desc, &global_secondary_buffer, null))) {
@@ -534,6 +569,7 @@ const OffscreenBuffer = struct {
     width: i32,
     height: i32,
     pitch: usize,
+    bytes_per_pixel: usize,
 };
 
 const SoundOutput = struct {
@@ -554,7 +590,6 @@ const SoundOutput = struct {
             .latency_sample_count = undefined,
         };
         self.secondary_buffer_size = self.sample_rate * self.bytes_per_sample;
-        self.latency_sample_count = self.sample_rate / 15;
         return self;
     }
 };
@@ -784,6 +819,75 @@ fn processPendingMessages(window: win.HWND, keyboard_controller: *engine.Input.C
 /// namespace for debug only functions
 /// asserting that handmade_internal is true
 pub const debug = struct {
+    pub fn syncDisplay(
+        backbuffer: *OffscreenBuffer,
+        time_markers: []TimeMarker,
+        sound_output: *SoundOutput,
+    ) void {
+        assert(options.handmade_internal);
+
+        const pad_x = 16;
+        const pad_y = 16;
+
+        const top = pad_y;
+        const bottom: u32 = @intCast(global_backbuffer.height - pad_y);
+
+        const coefficient = @as(f32, @floatFromInt(backbuffer.width - 2 * pad_x)) / @as(f32, @floatFromInt(sound_output.secondary_buffer_size));
+        for (time_markers) |time_marker| {
+            drawSoundBufferMarker(
+                time_marker.play_cursor,
+                backbuffer,
+                sound_output,
+                pad_x,
+                coefficient,
+                top,
+                bottom - pad_y,
+                0xff0000,
+            );
+
+            drawSoundBufferMarker(
+                time_marker.write_cursor,
+                backbuffer,
+                sound_output,
+                pad_x,
+                coefficient,
+                top + pad_y,
+                bottom,
+                0xeeeeee,
+            );
+        }
+    }
+
+    pub fn drawSoundBufferMarker(
+        value: u32,
+        backbuffer: *OffscreenBuffer,
+        sound_output: *SoundOutput,
+        pad_x: u32,
+        coefficient: f32,
+        top: u32,
+        bottom: u32,
+        color: u32,
+    ) void {
+        assert(value < sound_output.secondary_buffer_size);
+        const x: u32 = pad_x + @as(u32, @intFromFloat(@as(f32, @floatFromInt(value)) * coefficient));
+        drawVertical(backbuffer, x, top, bottom, color);
+    }
+
+    pub fn drawVertical(backbuffer: *OffscreenBuffer, x: u32, top: u32, bottom: u32, color: u32) void {
+        var pixel = @as([*]u8, @ptrCast(backbuffer.bits)) + (x * backbuffer.bytes_per_pixel) + (top * backbuffer.pitch);
+        for (top..bottom) |_| {
+            var p: [*]u32 = @alignCast(@ptrCast(pixel));
+            p[0] = color;
+            pixel += backbuffer.pitch;
+        }
+    }
+
+    const TimeMarker = struct {
+        play_cursor: win.DWORD = 0,
+        write_cursor: win.DWORD = 0,
+    };
+
+    // --- IO ---
     pub fn readEntireFile(filename: []const u8) engine.debug.ReadFileResult {
         assert(options.handmade_internal);
 
