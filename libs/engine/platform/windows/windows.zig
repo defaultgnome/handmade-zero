@@ -42,7 +42,6 @@ pub fn run(vtable: engine.GameVTable) !void {
     // TODO(casey): get monitor refresh rate from windows
     const monitor_refresh_rate = 60;
     const game_update_rate: comptime_int = monitor_refresh_rate / 2;
-    const frames_of_audio_latency = game_update_rate / 10;
     const target_frame_time_ms = 1000.0 / @as(comptime_float, @floatFromInt(game_update_rate));
 
     if (win.RegisterClassA(&window_class) == 0) {
@@ -73,7 +72,7 @@ pub fn run(vtable: engine.GameVTable) !void {
 
     // Sound Test
     var sound_output = SoundOutput.init();
-    sound_output.latency_sample_count = (sound_output.sample_rate / game_update_rate) * frames_of_audio_latency;
+    sound_output.latency_sample_count = (sound_output.sample_rate / game_update_rate);
     loadDSound(window, sound_output.sample_rate, sound_output.secondary_buffer_size);
     clearSoundBuffer(&sound_output);
     _ = global_secondary_buffer.*.lpVtbl.*.Play.?(global_secondary_buffer, 0, 0, dsound.DSBPLAY_LOOPING);
@@ -124,7 +123,10 @@ pub fn run(vtable: engine.GameVTable) !void {
     var time_markers = [_]debug.TimeMarker{debug.TimeMarker{}} ** (game_update_rate / 2);
 
     var play_cursor_last: win.DWORD = 0;
+    var write_cursor_last: win.DWORD = 0;
     var sound_is_valid = false;
+    var audio_latency_bytes: win.DWORD = 0;
+    var audio_latency_s: f32 = 0;
 
     while (global_running) {
         const old_keyboard_controller = old_input.getKeyboard();
@@ -251,7 +253,14 @@ pub fn run(vtable: engine.GameVTable) !void {
             vtable.update(&memory, new_input, &buffer, &sound_buffer);
 
             if (sound_is_valid) {
-                fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
+                var pc: win.DWORD = 0;
+                var wc: win.DWORD = 0;
+                if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &pc, &wc))) {
+                    const unwrapped_wc = if (wc < pc) wc + sound_output.secondary_buffer_size else wc;
+                    audio_latency_bytes = unwrapped_wc - pc;
+                    audio_latency_s = (@as(f32, @floatFromInt(audio_latency_bytes)) / @as(f32, @floatFromInt(sound_output.bytes_per_sample))) / @as(f32, @floatFromInt(sound_output.sample_rate));
+                    fillSoundBuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
+                }
             }
 
             {
@@ -275,6 +284,7 @@ pub fn run(vtable: engine.GameVTable) !void {
             var write_cursor: win.DWORD = 0;
             if (dsound.SUCCEEDED(global_secondary_buffer.*.lpVtbl.*.GetCurrentPosition.?(global_secondary_buffer, &play_cursor, &write_cursor))) {
                 play_cursor_last = play_cursor;
+                write_cursor_last = write_cursor;
                 if (!sound_is_valid) {
                     sound_output.running_sample_index = write_cursor / sound_output.bytes_per_sample;
                     sound_is_valid = true;
@@ -311,8 +321,23 @@ pub fn run(vtable: engine.GameVTable) !void {
                     const time_to_sleep = @as(u64, @intFromFloat(target_frame_time_ms * std.time.ns_per_ms)) - instant_work_elapsed_ns;
                     if (time_to_sleep > 0) {
                         std.Thread.sleep(time_to_sleep);
+
+                        const now_after_sleepp = std.time.Instant.now() catch null;
+                        if (now_after_sleepp) |now_after_sleep| {
+                            const elapsed_after_sleep_ms: f32 = @as(f32, @floatFromInt(now_after_sleep.since(instant_start))) / std.time.ns_per_ms;
+                            const error_margin = 1.0;
+                            if ((elapsed_after_sleep_ms + error_margin) < target_frame_time_ms) {
+                                internal.log.warn("Missed sleep! took {d:.2}ms ({d:.2}ms) to complete", .{
+                                    @as(f32, @floatFromInt(now_after_sleep.since(instant_work))) / std.time.ns_per_ms,
+                                    elapsed_after_sleep_ms - target_frame_time_ms,
+                                });
+                            }
+                        } else {
+                            internal.log.err("Failed to get time after sleep", .{});
+                        }
                     }
                 }
+
                 while (instant_elapsed_ms < target_frame_time_ms) {
                     const now = std.time.Instant.now() catch unreachable;
                     instant_elapsed_ms = @as(f32, @floatFromInt(now.since(instant_start))) / std.time.ns_per_ms;
